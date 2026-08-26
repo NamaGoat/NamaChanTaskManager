@@ -13,6 +13,8 @@ ROBLOX_PROCESS = "RobloxPlayerBeta.exe"
 APP_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
 SETTINGS_PATH = os.path.join(APP_DIR, "settings.json")
 LOCALAPPDATA = os.getenv("LOCALAPPDATA", "")
+if not LOCALAPPDATA:
+    LOCALAPPDATA = os.path.join(os.getenv("USERPROFILE", ""), "AppData", "Local")
 VERSIONS_DIR = os.path.join(LOCALAPPDATA, "Roblox", "Versions")
 
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -229,6 +231,11 @@ def find_roblox_exe():
     if custom and os.path.isfile(custom):
         return custom
     candidates = glob.glob(os.path.join(VERSIONS_DIR, "version-*", ROBLOX_PROCESS))
+    if not candidates:
+        for env in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            base = os.getenv(env, "")
+            if base:
+                candidates += glob.glob(os.path.join(base, "Roblox", "Versions", "version-*", ROBLOX_PROCESS))
     if candidates:
         candidates.sort(key=lambda p: os.path.getmtime(os.path.dirname(p)), reverse=True)
         return candidates[0]
@@ -275,6 +282,16 @@ GFX_MANAGED_KEYS = {GFX_FLAG} | {k for p in GFX_PRESET_FLAGS.values() for k in p
 GLOBAL_SETTINGS_XML = os.path.join(LOCALAPPDATA, "Roblox", "GlobalBasicSettings_13.xml")
 
 
+def _find_version_dirs():
+    dirs = [d for d in glob.glob(os.path.join(VERSIONS_DIR, "version-*")) if os.path.isdir(d)]
+    if not dirs:
+        for env in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            base = os.getenv(env, "")
+            if base:
+                dirs += [d for d in glob.glob(os.path.join(base, "Roblox", "Versions", "version-*")) if os.path.isdir(d)]
+    return dirs
+
+
 def _read_client_settings(path):
     if os.path.isfile(path):
         try:
@@ -289,8 +306,23 @@ def _global_framerate_cap_path():
     return GLOBAL_SETTINGS_XML
 
 
+def _ensure_global_settings_xml():
+    if os.path.isfile(GLOBAL_SETTINGS_XML):
+        return True
+    try:
+        os.makedirs(os.path.dirname(GLOBAL_SETTINGS_XML), exist_ok=True)
+        with open(GLOBAL_SETTINGS_XML, "w", encoding="utf-8") as f:
+            f.write('<roblox version="4">\n<int name="FramerateCap">60</int>\n'
+                    '<token name="SavedQualityLevel">1</token>\n'
+                    '<int name="GraphicsQualityLevel">1</int>\n</roblox>\n')
+        return True
+    except Exception:
+        return False
+
+
 def write_global_framerate_cap(fps):
     fps = int(fps)
+    _ensure_global_settings_xml()
     if not os.path.isfile(GLOBAL_SETTINGS_XML):
         return False
     import re
@@ -298,6 +330,10 @@ def write_global_framerate_cap(fps):
         with open(GLOBAL_SETTINGS_XML, "r", encoding="utf-8") as f:
             data = f.read()
         new, n = re.subn(r'(<int name="FramerateCap">)\d+(</int>)', r"\g<1>" + str(fps) + r"\g<2>", data)
+        if not n:
+            data = data.replace("</roblox>",
+                               f'<int name="FramerateCap">{fps}</int>\n</roblox>')
+            new, n = data, True
         if n and new != data:
             with open(GLOBAL_SETTINGS_XML, "w", encoding="utf-8") as f:
                 f.write(new)
@@ -320,6 +356,7 @@ def write_global_quality_level(level):
     """Écrit SavedQualityLevel/GraphicsQualityLevel (1-10) dans
     GlobalBasicSettings_13.xml. Le rayon de STREAMING dépend de CE réglage
     utilisateur réel, pas de DFIntDebugFRMQualityLevelOverride."""
+    _ensure_global_settings_xml()
     if not os.path.isfile(GLOBAL_SETTINGS_XML):
         return False
     import re
@@ -350,7 +387,7 @@ def read_global_quality_level():
 
 
 def apply_fps_cap(fps, gfx_mode="auto"):
-    versions = [d for d in glob.glob(os.path.join(VERSIONS_DIR, "version-*")) if os.path.isdir(d)]
+    versions = _find_version_dirs()
     written = []
     gfx_val = GFX_QUALITY_LEVELS.get(gfx_mode)
     preset = GFX_PRESET_FLAGS.get(gfx_mode, {})
@@ -391,7 +428,7 @@ def ensure_fps_cap():
     if gfx_target is not None:
         expected[GFX_FLAG] = gfx_target
         expected.update(GFX_PRESET_FLAGS.get(gfx_mode, {}))
-    versions = [d for d in glob.glob(os.path.join(VERSIONS_DIR, "version-*")) if os.path.isdir(d)]
+    versions = _find_version_dirs()
     need = False
     for v in versions:
         path = os.path.join(v, "ClientSettings", "ClientAppSettings.json")
