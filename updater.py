@@ -82,22 +82,24 @@ def download_update(url, progress_fn=None):
 def apply_update(exe_path):
     current = os.path.abspath(sys.argv[0])
     backup = current + ".old"
-    vbs = os.path.join(os.path.dirname(current), "namachan_update.vbs")
+    ps1 = os.path.join(os.path.dirname(current), "namachan_update.ps1")
+    exe_dir = os.path.dirname(current).replace("'", "''")
+    cur = current.replace("'", "''")
+    bak = backup.replace("'", "''")
+    upd = exe_path.replace("'", "''")
+    name = EXE_NAME
     script = (
-        "Set fso = CreateObject(\"Scripting.FileSystemObject\")\n"
-        "Set wsh = CreateObject(\"WScript.Shell\")\n"
-        "WScript.Sleep 1500\n"
-        "wsh.Run \"taskkill /f /im " + EXE_NAME + "\", 0, True\n"
-        "WScript.Sleep 2000\n"
-        "On Error Resume Next\n"
-        "If fso.FileExists(\"" + backup + "\") Then fso.DeleteFile \"" + backup + "\"\n"
-        "fso.MoveFile \"" + current + "\", \"" + backup + "\"\n"
-        "fso.MoveFile \"" + exe_path + "\", \"" + current + "\"\n"
-        "On Error GoTo 0\n"
-        "wsh.Run \"\"\"" + current + "\"\"\"\n"
-        "Set fso = Nothing\n"
-        "Set wsh = Nothing\n"
+        "Start-Sleep -Seconds 2\n"
+        f"Stop-Process -Name '{name.split('.')[0]}' -Force -ErrorAction SilentlyContinue\n"
+        "Start-Sleep -Seconds 2\n"
+        f"if (Test-Path '{bak}') {{ Remove-Item '{bak}' -Force }}\n"
+        f"Rename-Item '{cur}' '{bak}' -Force -ErrorAction SilentlyContinue\n"
+        f"Rename-Item '{upd}' '{cur}' -Force -ErrorAction SilentlyContinue\n"
+        f"Start-Process '{cur}'\n"
+        f"Remove-Item '{ps1}' -Force -ErrorAction SilentlyContinue\n"
     )
-    with open(vbs, "w", encoding="utf-8") as f:
+    with open(ps1, "w", encoding="utf-8") as f:
         f.write(script)
-    subprocess.Popen(["wscript.exe", vbs], creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW)
+    subprocess.Popen(
+        ["powershell", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", ps1],
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW)
