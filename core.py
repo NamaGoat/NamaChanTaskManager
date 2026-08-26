@@ -359,9 +359,12 @@ def apply_fps_cap(fps, gfx_mode="auto"):
             data[GFX_FLAG] = gfx_val
             for k, val in preset.items():
                 data[k] = val
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
-        written.append(path)
+        try:
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+            written.append(path)
+        except PermissionError:
+            pass
     write_global_framerate_cap(fps)
     if gfx_mode != "auto":
         write_global_quality_level(10)
