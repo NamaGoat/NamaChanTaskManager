@@ -96,7 +96,6 @@ def apply_update(exe_path):
     cur = current.replace("'", "''")
     bak = backup.replace("'", "''")
     upd = exe_path.replace("'", "''")
-    name = EXE_NAME.split(".")[0]
     ps1_path = ps1.replace("'", "''")
     exe_dir = os.path.dirname(current)
     cleanup = " ".join(
@@ -105,9 +104,7 @@ def apply_update(exe_path):
         if f.endswith(".old") or f.endswith(".vbs")
     )
     script = (
-        "Start-Sleep -Seconds 2\n"
-        f"Stop-Process -Name '{name}' -Force -ErrorAction SilentlyContinue\n"
-        "Start-Sleep -Seconds 2\n"
+        "Start-Sleep -Seconds 3\n"
         f"Remove-Item '{bak}' -Force -ErrorAction SilentlyContinue\n"
         f"Rename-Item '{cur}' '{bak}' -Force -ErrorAction SilentlyContinue\n"
         f"Copy-Item '{upd}' '{cur}' -Force\n"
@@ -121,3 +118,5 @@ def apply_update(exe_path):
     subprocess.Popen(
         ["powershell", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", ps1],
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW)
+    time.sleep(0.5)
+    os._exit(0)
