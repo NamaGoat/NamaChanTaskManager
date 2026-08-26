@@ -26,7 +26,7 @@ import core
 import features
 import updater
 
-__version__ = "1.0.7"
+__version__ = "1.0.8"
 
 BG = "#0d1118"
 CARD = "#151b26"
@@ -193,6 +193,7 @@ class App(ctk.CTk):
 
         self.show_view("comptes")
         self.after(100, self._drain)
+        updater.cleanup_old_files()
         try:
             fixed = core.ensure_fps_cap()
             if fixed:

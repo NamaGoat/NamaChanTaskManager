@@ -1,4 +1,5 @@
 import json
+import glob
 import os
 import subprocess
 import sys
@@ -21,6 +22,16 @@ def _parse_version(v):
     while len(parts) < 3:
         parts.append(0)
     return tuple(parts[:3])
+
+
+def cleanup_old_files():
+    exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    for pattern in ("*.old", "*.vbs", "namachan_update.*"):
+        for f in glob.glob(os.path.join(exe_dir, pattern)):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
 
 
 def check_update(current_version):
@@ -53,8 +64,7 @@ def check_update(current_version):
 
 
 def download_update(url, progress_fn=None):
-    exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    tmp = os.path.join(exe_dir, "namachan_update.exe")
+    tmp = os.path.join(tempfile.gettempdir(), "namachan_update.exe")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "NamaChanUpdater"})
         with urllib.request.urlopen(req, timeout=120) as r:
@@ -82,21 +92,29 @@ def download_update(url, progress_fn=None):
 def apply_update(exe_path):
     current = os.path.abspath(sys.argv[0])
     backup = current + ".old"
-    ps1 = os.path.join(os.path.dirname(current), "namachan_update.ps1")
-    exe_dir = os.path.dirname(current).replace("'", "''")
+    ps1 = os.path.join(tempfile.gettempdir(), "namachan_update.ps1")
     cur = current.replace("'", "''")
     bak = backup.replace("'", "''")
     upd = exe_path.replace("'", "''")
-    name = EXE_NAME
+    name = EXE_NAME.split(".")[0]
+    ps1_path = ps1.replace("'", "''")
+    exe_dir = os.path.dirname(current)
+    cleanup = " ".join(
+        f"Remove-Item '{os.path.join(exe_dir, f).replace(chr(39), chr(39)+chr(39))}' -Force -ErrorAction SilentlyContinue;"
+        for f in os.listdir(exe_dir)
+        if f.endswith(".old") or f.endswith(".vbs")
+    )
     script = (
         "Start-Sleep -Seconds 2\n"
-        f"Stop-Process -Name '{name.split('.')[0]}' -Force -ErrorAction SilentlyContinue\n"
+        f"Stop-Process -Name '{name}' -Force -ErrorAction SilentlyContinue\n"
         "Start-Sleep -Seconds 2\n"
-        f"if (Test-Path '{bak}') {{ Remove-Item '{bak}' -Force }}\n"
+        f"Remove-Item '{bak}' -Force -ErrorAction SilentlyContinue\n"
         f"Rename-Item '{cur}' '{bak}' -Force -ErrorAction SilentlyContinue\n"
-        f"Rename-Item '{upd}' '{cur}' -Force -ErrorAction SilentlyContinue\n"
+        f"Copy-Item '{upd}' '{cur}' -Force\n"
+        f"Remove-Item '{upd}' -Force -ErrorAction SilentlyContinue\n"
+        f"{cleanup}\n"
         f"Start-Process '{cur}'\n"
-        f"Remove-Item '{ps1}' -Force -ErrorAction SilentlyContinue\n"
+        f"Remove-Item '{ps1_path}' -Force -ErrorAction SilentlyContinue\n"
     )
     with open(ps1, "w", encoding="utf-8") as f:
         f.write(script)
