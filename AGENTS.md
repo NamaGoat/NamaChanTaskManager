@@ -235,6 +235,8 @@ Le code existe déjà :
   copier `dist\NamaChanAccountManager.exe` sur le Bureau (l'utilisateur y
   lance l'exe) :
   `Copy-Item dist\NamaChanAccountManager.exe ([Environment]::GetFolderPath('Desktop')) -Force`
+- Release GitHub : TOUJOURS inclure l'exe dans la release
+  (`gh release upload ... --clobber`).
 - NE JAMAIS éditer les fichiers sources via Get-Content/Set-Content PowerShell
   (double-encodage UTF-8 -> mojibake) : utiliser uniquement les outils
   d'édition dédiés.
