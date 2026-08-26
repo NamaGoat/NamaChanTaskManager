@@ -21,6 +21,8 @@ majeur.
   handles NtQuerySystemInformation), cap FPS FastFlags, priorité processus,
   suspend/resume, lancement multiple.
 - `features.py` : AntiAFK et AutoRejoin.
+- `updater.py` : auto-update depuis GitHub Releases (check version, download,
+  remplacement via PowerShell, nettoyage fichiers orphelins).
 - `main.py` : ANCIENNE version tkinter, référence uniquement — ne pas développer dessus.
 - `dist\` : exes PyInstaller (`NamaChanAccountManager.exe` = build actuel).
 - Spec PyInstaller : `NamaChanAccountManager.spec`.
@@ -164,6 +166,18 @@ majeur.
   le switch vue Features : switch ON = fermeture manuelle aussi relancée).
   Tests réels restants côté user : idle 20-30 min (AntiAFK), rejoin après
   fermeture manuelle (AutoRejoin).
+- 26/08 - Updater "Security validation failure" réparé (v1.0.3 → v1.0.10).
+  L'updaterPyInstaller rejetait le remplacement quand le téléchargement
+  passait par un dossier temporaire. Fix : download dans le MÊME répertoire
+  que l'exe + `cleanup_orphan_files()` au démarrage pour les fichiers
+  `.new`/`.old` orphelins. Scripts batch → VBScript → PowerShell pour
+  contourner la validation PyInstaller. Version parser révertée en 3 parties
+  (4 parties cassait la comparaison). Release v1.0.10 OK sur GitHub.
+- 26/08 SUITE - Modes Perf : render max + suppression ciel gris Perf.
+  Perf++ (FRM 1) : LOD monté à 200000 + `DFIntDebugRestrictGCDistance=500000`
+  (render distance max). Perf (FRM 21) : `FFlagDebugSkyGray` retiré (ciel
+  normal, nuit visible). Les deux modes ont désormais textures mini, ombres
+  off, render distance max. La nuit noire est un comportement normal Roblox.
 
 ## Liste de progression (roadmap)
 
@@ -193,6 +207,8 @@ majeur.
    - [x] Refonte historique jeux récents (25/08) : grille à trous remplacée
          par une liste compacte (icône + nom + place/compte + bouton ▶).
    - [ ] Autres QoL à définir avec l'utilisateur
+9. [x] Documentation auto : TOUS les changements (bug, feature, QoL) sont
+       notés dans `JOURNAL.md` + `AGENTS.md` à chaque modification.
 
 ### Détail Multi Roblox (étape 4)
 Le code existe déjà :
@@ -206,10 +222,10 @@ Le code existe déjà :
 ## Conventions
 
 - Répondre en français.
-- RÈGLE : à CHAQUE bug trouvé/diagnostiqué/corrigé -> documenter dans
-  `AGENTS.md` (notes techniques, section État/historique) ET `JOURNAL.md`
-  (récit lisible : symptôme -> enquête -> cause -> fix). Systématique,
-  pas seulement les bugs "majeurs".
+- RÈGLE : à CHAQUE modification (bug, feature, QoL, ajustement) ->
+  documenter dans `AGENTS.md` (notes techniques, section État/historique)
+  ET `JOURNAL.md` (récit lisible : contexte -> cause -> fix).
+  Systématique, pas seulement les bugs "majeurs".
 - Après chaque modif : tester en lançant `python app_ui.py`.
   NB : le bon interpréteur est
   `C:\Users\namaz\AppData\Local\Programs\Python\Python310\python.exe`

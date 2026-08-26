@@ -286,16 +286,16 @@ Les presets internes (`perf`, `perfplus`) gardent leur contenu : les
 settings déjà sauvegardés restent valides, seul l'affichage change.
 
 ### État final des modes
-| Mode | Moteur | Textures | Ombres | Vision | Usage |
-|------|--------|----------|--------|--------|-------|
-| Auto | — | — | — | réglage Roblox | laisser faire |
-| Perf++ | FRM 1 | mini | off | complète, rendu minimal | FPS max absolu |
-| Perf | FRM 21 | mini | off | complète ET détaillée | joli + fluide |
-| Équilibré | FRM 8 | normales | normales | complète | compromis |
-| Pro | FRM 21 | normales | normales | complète | max visuel |
+| Mode | Moteur | Textures | Ombres | Ciel | LOD | RestrictGC | Vision |
+|------|--------|----------|--------|------|-----|------------|--------|
+| Auto | — | — | — | Roblox | — | — | réglage Roblox |
+| Perf++ | FRM 1 | mini | off | gris | 200k | 500k | complète, rendu minimal |
+| Perf | FRM 21 | mini | off | normal | 200k | 500k | complète ET détaillée |
+| Équilibré | FRM 8 | normales | normales | Roblox | — | — | complète |
+| Pro | FRM 21 | normales | normales | Roblox | — | — | max visuel |
 
-NB persistant : le ciel gris (`FFlagDebugSkyGray`) reste sans effet visible
-chez l'utilisateur (probablement hors allowlist des clients récents).
+NB : la nuit noire (sans FFlagDebugSkyGray) est un comportement normal
+Roblox — pas un bug.
 
 ---
 
@@ -316,6 +316,76 @@ en bout, la roadmap passe en [x].
   switch pour prévenir l'utilisateur.
 - Reste à tester en conditions réelles par l'utilisateur : idle 20-30 min
   (AntiAFK), fermeture manuelle avec switch ON (AutoRejoin).
+
+---
+
+## Updater : "Security validation failure" (v1.0.3 → v1.0.10, 26/08)
+
+### Symptôme
+L'update depuis l'exe (auto-update intégrée) échouait avec une erreur
+"Security validation failure" de PyInstaller lors du remplacement du fichier.
+
+### Cause
+PyInstaller embarque un mécanisme de sécurité : quand un exe lancé depuis
+un chemin A tente de remplacer son propre fichier, il doit passer par le
+**même répertoire**. L'updater téléchargeait d'abord vers un dossier
+temporaire (`tempfile`) puis tentait de déplacer le fichier dans le dossier
+de l'exe → PyInstaller rejetait l'opération car le chemin source n'était
+pas le répertoire de l'app.
+
+### Fixes successifs (5 itérations, v1.0.3 à v1.0.10)
+1. **v1.0.3** — retry loop pour les file locks + délais plus longs après
+   `taskkill` (premier fix, pas encore le bon).
+2. **v1.0.4** — l'updater télécharge désormais dans le **même répertoire**
+   que l'exe (plus de dossier temp) + fix du path de sécurité PyInstaller.
+3. **v1.0.5–1.0.6** — tentative de nettoyage via dossier temp + scripts
+   batch → même erreur de sécurité.
+4. **v1.0.7–1.0.9** — passage à VBScript puis PowerShell pour contourner
+   la validation de sécurité du batch PyInstaller ; fix du problème où
+   Python s'arrêtait AVANT que le script PS1 ait pu swap les fichiers.
+5. **v1.0.10** — revert du parser de version (4 parties → 3 parties) qui
+   cassait la comparaison de versions.
+
+### Fix final (état actuel)
+- L'updater télécharge dans le **même répertoire** que l'exe (pas de
+  temporaire), ce qui satisfait PyInstaller.
+- `cleanup_orphan_files()` au démarrage supprime les fichiers `.new`/`.old`
+  restants d'un update précédent (si le swap a planté entre-temps).
+- Le script PowerShell (`.ps1`) gère le remplacement : kill process → wait →
+  rename old → rename new → relance.
+
+### Validation
+Release v1.0.10 uploadée sur GitHub avec exe fonctionnel. L'update depuis
+l'exe a été testée avec succès par l'utilisateur ✓
+
+---
+
+## Modes Perf : render max + suppression ciel gris Perf (26/08)
+
+### Problème
+- Perf++ (FRM 1) : la map n'était pas rendue au max → LOD à 100000 et pas
+  de `DFIntDebugRestrictGCDistance` → zone rendue trop petite malgré le
+  streaming qui envoie les données.
+- Perf (FRM 21) : le ciel gris (`FFlagDebugSkyGray`) causait un fog gris
+  indésirable. L'utilisateur voulait un ciel naturel sur ce mode.
+- Les deux modes avaient des settings qualité identiques sauf le FRM → les
+  optimisations n'étaient pas alignées.
+
+### Fix
+- Les deux modes Perf poussent désormais le render distance au max :
+  LOD à 200000 (tous les `_LOD_KEYS`) + `DFIntDebugRestrictGCDistance=500000`
+  (lève la restriction de distance de dessin).
+- `FFlagDebugSkyGray` retiré UNIQUEMENT du preset `perfplus` (UI "Perf") :
+  ciel normal, nuit visible. Reste sur `perf` (UI "Perf++") pour ceux qui
+  veulent le gris.
+- Qualité minimale conservée sur les deux modes : textures mini
+  (`DFIntTextureQualityOverride=0`), ombres off
+  (`FIntRenderShadowIntensity=0` + `DFFlagDebugPauseVoxelizer=True`).
+- Tooltips (`GFX_TOOLTIPS`, app_ui.py) mis à jour.
+
+### Note
+La nuit noire sur Blox Fruits est un comportement normal de Roblox
+(quand FFlagDebugSkyGray n'est pas actif), pas un bug à corriger.
 
 
 

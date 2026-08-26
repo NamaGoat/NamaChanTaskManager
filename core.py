@@ -265,9 +265,9 @@ GFX_PRESET_FLAGS = {
         "DFIntTextureQualityOverride": "0",
         "FIntRenderShadowIntensity": "0",
         "DFFlagDebugPauseVoxelizer": "True",
-    }, **_lod_flags("100000")),
+        "DFIntDebugRestrictGCDistance": "500000",
+    }, **_lod_flags("200000")),
     "perfplus": dict({
-        "FFlagDebugSkyGray": "True",
         "DFFlagTextureQualityOverrideEnabled": "True",
         "DFIntTextureQualityOverride": "0",
         "FIntRenderShadowIntensity": "0",
