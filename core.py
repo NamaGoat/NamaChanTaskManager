@@ -262,7 +262,7 @@ GFX_PRESET_FLAGS = {
     "perf": dict({
         "FFlagDebugSkyGray": "True",
         "DFFlagTextureQualityOverrideEnabled": "True",
-        "DFIntTextureQualityOverride": "0",
+        "DFIntTextureQualityOverride": "1",
         "DFFlagDisableDPIScale": "True",
         "FIntRenderShadowIntensity": "0",
         "DFFlagDebugPauseVoxelizer": "True",
@@ -270,7 +270,7 @@ GFX_PRESET_FLAGS = {
     }, **_lod_flags("200000")),
     "perfplus": dict({
         "DFFlagTextureQualityOverrideEnabled": "True",
-        "DFIntTextureQualityOverride": "0",
+        "DFIntTextureQualityOverride": "1",
         "DFFlagDisableDPIScale": "True",
         "FIntRenderShadowIntensity": "0",
         "DFFlagDebugPauseVoxelizer": "True",
