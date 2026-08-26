@@ -263,8 +263,6 @@ GFX_PRESET_FLAGS = {
         "FFlagDebugSkyGray": "True",
         "DFFlagTextureQualityOverrideEnabled": "True",
         "DFIntTextureQualityOverride": "0",
-        "FIntDebugTextureManagerSkipMips": "8",
-        "DFIntPerformanceControlTextureQualityBestUtility": "-1",
         "DFFlagDisableDPIScale": "True",
         "FIntRenderShadowIntensity": "0",
         "DFFlagDebugPauseVoxelizer": "True",
@@ -273,8 +271,6 @@ GFX_PRESET_FLAGS = {
     "perfplus": dict({
         "DFFlagTextureQualityOverrideEnabled": "True",
         "DFIntTextureQualityOverride": "0",
-        "FIntDebugTextureManagerSkipMips": "8",
-        "DFIntPerformanceControlTextureQualityBestUtility": "-1",
         "DFFlagDisableDPIScale": "True",
         "FIntRenderShadowIntensity": "0",
         "DFFlagDebugPauseVoxelizer": "True",
