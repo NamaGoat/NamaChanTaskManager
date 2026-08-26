@@ -209,6 +209,9 @@ majeur.
    - [ ] Autres QoL à définir avec l'utilisateur
 9. [x] Documentation auto : TOUS les changements (bug, feature, QoL) sont
        notés dans `JOURNAL.md` + `AGENTS.md` à chaque modification.
+10. [ ] **Ne jamais push GitHub sans demander** : laisser l'utilisateur
+        tester l'exe sur PC avant de créer la release. Réduire le nombre
+        de releases (pas 1 fix = 1 release).
 
 ### Détail Multi Roblox (étape 4)
 Le code existe déjà :
@@ -236,7 +239,8 @@ Le code existe déjà :
   lance l'exe) :
   `Copy-Item dist\NamaChanAccountManager.exe ([Environment]::GetFolderPath('Desktop')) -Force`
 - Release GitHub : TOUJOURS inclure l'exe dans la release
-  (`gh release upload ... --clobber`).
+  (`gh release upload ... --clobber`). NE JAMAIS push sur GitHub sans demander
+  d'abord : laisser l'utilisateur tester sur PC avant.
 - NE JAMAIS éditer les fichiers sources via Get-Content/Set-Content PowerShell
   (double-encodage UTF-8 -> mojibake) : utiliser uniquement les outils
   d'édition dédiés.
