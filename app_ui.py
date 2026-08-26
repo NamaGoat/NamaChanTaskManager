@@ -26,7 +26,7 @@ import core
 import features
 import updater
 
-__version__ = "1.0.12"
+__version__ = "1.0.13"
 
 BG = "#0d1118"
 CARD = "#151b26"
@@ -73,8 +73,8 @@ FONT_S = ("Segoe UI", 10)
 
 GFX_TOOLTIPS = {
     "Auto": "Roblox gère la qualité tout seul (peut repasser en Auto en multi).",
-    "Perf": "Vision complète ET détaillée au loin, quality min, render max (moteur 21/21, ciel normal).",
-    "Perf++": "FPS MAX absolu : quality min, render max, ciel gris (moteur 1/21).",
+    "Perf": "Quality min, render max, ciel normal (moteur 1/21).",
+    "Perf++": "Quality min, render max, ciel gris (moteur 1/21).",
     "Équilibré": "Niveau 8/21 — bon compromis visuel / performances, vision complète.",
     "Pro": "Niveau 21/21 — rendu au maximum, vision complète.",
 }

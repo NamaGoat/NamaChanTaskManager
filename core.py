@@ -243,7 +243,7 @@ def find_roblox_exe():
 
 
 GFX_FLAG = "DFIntDebugFRMQualityLevelOverride"
-GFX_QUALITY_LEVELS = {"perf": "21", "perfplus": "21", "equilibre": "8", "pro": "21"}
+GFX_QUALITY_LEVELS = {"perf": "1", "perfplus": "1", "equilibre": "8", "pro": "21"}
 GFX_LABELS = {"Auto": "auto", "Perf": "perfplus", "Perf++": "perf",
               "Équilibré": "equilibre", "Pro": "pro"}
 
