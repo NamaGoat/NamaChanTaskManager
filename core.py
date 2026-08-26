@@ -194,12 +194,20 @@ def resume_pid(pid):
         kernel32.CloseHandle(h)
 
 
+_DEFAULTS = {"fps_default": 240, "gfx_quality": "auto", "theme": "Miyabi",
+             "force_mutex": True, "anti_afk": False, "aa_interval": 120,
+             "auto_rejoin": False, "ar_delay": 6}
+
+
 def load_settings():
     try:
         with open(SETTINGS_PATH, "r") as f:
-            return json.load(f)
+            d = json.load(f)
     except Exception:
-        return {}
+        d = {}
+    for k, v in _DEFAULTS.items():
+        d.setdefault(k, v)
+    return d
 
 
 def save_settings(data):
