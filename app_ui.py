@@ -26,7 +26,7 @@ import core
 import features
 import updater
 
-__version__ = "1.0.14"
+__version__ = "1.0.15"
 
 BG = "#0d1118"
 CARD = "#151b26"
@@ -75,6 +75,7 @@ GFX_TOOLTIPS = {
     "Auto": "Roblox gère la qualité tout seul (peut repasser en Auto en multi).",
     "Perf": "Quality min, render max, ciel normal (moteur 1/21).",
     "Perf++": "Quality min, render max, ciel gris (moteur 1/21).",
+    "Perf Render Max": "Quality min, render MAX, moteur 21/21 — voit au loin.",
     "Équilibré": "Niveau 8/21 — bon compromis visuel / performances, vision complète.",
     "Pro": "Niveau 21/21 — rendu au maximum, vision complète.",
 }
@@ -1019,7 +1020,7 @@ class App(ctk.CTk):
         self.e_fps.pack(side="left", padx=8)
         lbl_gfx = ctk.CTkLabel(finner, text="Qualité :", font=FONT_B)
         lbl_gfx.pack(side="left", padx=(18, 4))
-        self.opt_gfx = ctk.CTkOptionMenu(finner, values=["Auto", "Perf++", "Perf", "Équilibré", "Pro"], font=FONT, width=130,
+        self.opt_gfx = ctk.CTkOptionMenu(finner, values=["Auto", "Perf++", "Perf", "Perf Render Max", "Équilibré", "Pro"], font=FONT, width=130,
                                          fg_color=CARD2, button_color=CARD2, button_hover_color="#26303f",
                                          dropdown_fg_color=CARD2, dropdown_text_color=FG)
         self.opt_gfx.set({v: k for k, v in core.GFX_LABELS.items()}.get(self.settings.get("gfx_quality", "auto"), "Auto"))

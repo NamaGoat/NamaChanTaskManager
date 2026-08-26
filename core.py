@@ -243,8 +243,8 @@ def find_roblox_exe():
 
 
 GFX_FLAG = "DFIntDebugFRMQualityLevelOverride"
-GFX_QUALITY_LEVELS = {"perf": "1", "perfplus": "1", "equilibre": "8", "pro": "21"}
-GFX_LABELS = {"Auto": "auto", "Perf": "perfplus", "Perf++": "perf",
+GFX_QUALITY_LEVELS = {"perf": "1", "perfplus": "1", "perfrendermax": "21", "equilibre": "8", "pro": "21"}
+GFX_LABELS = {"Auto": "auto", "Perf": "perfplus", "Perf++": "perf", "Perf Render Max": "perfrendermax",
               "Équilibré": "equilibre", "Pro": "pro"}
 
 _LOD_KEYS = [
@@ -269,6 +269,14 @@ GFX_PRESET_FLAGS = {
         "DFIntDebugRestrictGCDistance": "500000",
     }, **_lod_flags("200000")),
     "perfplus": dict({
+        "DFFlagTextureQualityOverrideEnabled": "True",
+        "DFIntTextureQualityOverride": "1",
+        "DFFlagDisableDPIScale": "True",
+        "FIntRenderShadowIntensity": "0",
+        "DFFlagDebugPauseVoxelizer": "True",
+        "DFIntDebugRestrictGCDistance": "500000",
+    }, **_lod_flags("200000")),
+    "perfrendermax": dict({
         "DFFlagTextureQualityOverrideEnabled": "True",
         "DFIntTextureQualityOverride": "1",
         "DFFlagDisableDPIScale": "True",
