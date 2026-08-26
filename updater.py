@@ -82,29 +82,22 @@ def download_update(url, progress_fn=None):
 def apply_update(exe_path):
     current = os.path.abspath(sys.argv[0])
     backup = current + ".old"
-    bat = os.path.join(os.path.dirname(current), "namachan_update.bat")
-    script = f"""@echo off
-ping 127.0.0.1 -n 4 > nul
-taskkill /f /im {EXE_NAME} > nul 2>&1
-ping 127.0.0.1 -n 6 > nul
-if exist "{backup}" del /f "{backup}"
-:retry_move
-move /y "{current}" "{backup}" > nul 2>&1
-if errorlevel 1 (
-    ping 127.0.0.1 -n 3 > nul
-    goto retry_move
-)
-:retry_new
-move /y "{exe_path}" "{current}" > nul 2>&1
-if errorlevel 1 (
-    ping 127.0.0.1 -n 3 > nul
-    goto retry_new
-)
-start "" "{current}"
-ping 127.0.0.1 -n 3 > nul
-del /f "{exe_path}" > nul 2>&1
-del /f "%~f0"
-"""
-    with open(bat, "w", encoding="utf-8") as f:
+    vbs = os.path.join(os.path.dirname(current), "namachan_update.vbs")
+    script = (
+        "Set fso = CreateObject(\"Scripting.FileSystemObject\")\n"
+        "Set wsh = CreateObject(\"WScript.Shell\")\n"
+        "WScript.Sleep 1500\n"
+        "wsh.Run \"taskkill /f /im " + EXE_NAME + "\", 0, True\n"
+        "WScript.Sleep 2000\n"
+        "On Error Resume Next\n"
+        "If fso.FileExists(\"" + backup + "\") Then fso.DeleteFile \"" + backup + "\"\n"
+        "fso.MoveFile \"" + current + "\", \"" + backup + "\"\n"
+        "fso.MoveFile \"" + exe_path + "\", \"" + current + "\"\n"
+        "On Error GoTo 0\n"
+        "wsh.Run \"\"\"" + current + "\"\"\"\n"
+        "Set fso = Nothing\n"
+        "Set wsh = Nothing\n"
+    )
+    with open(vbs, "w", encoding="utf-8") as f:
         f.write(script)
-    subprocess.Popen(["cmd", "/c", bat], creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW)
+    subprocess.Popen(["wscript.exe", vbs], creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW)
