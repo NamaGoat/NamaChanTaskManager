@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "command": {
+    "roadmap": {
+      "description": "Voir où on en est (roadmap NamaChan)",
+      "template": "Affiche la roadmap du projet (section 'Liste de progression (roadmap)' de AGENTS.md) sous forme de checklist compacte : [x] fait, [~] en cours, [ ] à faire. Termine par une seule ligne : la prochaine étape concrète.",
+      "agent": "build",
+      "subtask": false
+    }
+  }
+}
