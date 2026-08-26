@@ -558,34 +558,7 @@ class App(ctk.CTk):
                       command=do_delete).pack(side="right")
 
     def dlg_add_choice(self):
-        w = ctk.CTkToplevel(self)
-        w.title("Ajouter un compte")
-        _apply_icon(w)
-        w.geometry("460x300")
-        w.configure(fg_color=BG)
-        w.transient(self)
-        w.after(200, lambda: self._safe_grab(w))
-        ctk.CTkLabel(w, text="Comment veux-tu ajouter ton compte ?", font=("Segoe UI", 15, "bold"), anchor="w").pack(fill="x", padx=20, pady=(18, 12))
-
-        def close():
-            try:
-                w.grab_release()
-            except Exception:
-                pass
-            w.destroy()
-
-        b1 = ctk.CTkButton(w, text="Connexion navigateur (recommandé)\nUn Chrome vierge s'ouvre, tu te connectes, je détecte tout seul.",
-                           font=FONT_S, height=58, anchor="w",
-                           command=lambda: (close(), self.start_browser_login()))
-        b1.pack(fill="x", padx=20, pady=5)
-        b2 = ctk.CTkButton(w, text="Importer mes profils Chrome/Edge existants\nRécupère les sessions Roblox déjà connectées.",
-                           font=FONT_S, height=58, anchor="w", fg_color=CARD2, hover_color="#26303f",
-                           command=lambda: (close(), self.import_browser()))
-        b2.pack(fill="x", padx=20, pady=5)
-        b3 = ctk.CTkButton(w, text="Coller le cookie .ROBLOSECURITY\nPour les utilisateurs avancés.",
-                           font=FONT_S, height=58, anchor="w", fg_color=CARD2, hover_color="#26303f",
-                           command=lambda: (close(), self.dlg_add_account()))
-        b3.pack(fill="x", padx=20, pady=(5, 18))
+        self.start_browser_login()
 
     def start_browser_login(self):
         if getattr(self, "_login_running", False):
@@ -649,49 +622,6 @@ class App(ctk.CTk):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def dlg_add_account(self):
-        w = ctk.CTkToplevel(self)
-        w.title("Ajouter un compte")
-        w.geometry("520x430")
-        _apply_icon(w)
-        w.configure(fg_color=BG)
-        w.transient(self)
-        w.after(200, lambda: self._safe_grab(w))
-        ctk.CTkLabel(w, text="Cookie .ROBLOSECURITY", font=("Segoe UI", 15, "bold"), anchor="w").pack(fill="x", padx=18, pady=(16, 2))
-        ctk.CTkLabel(w, text="Colle ici ton cookie .ROBLOSECURITY (F12 → Application → Cookies → roblox.com).\nIl est chiffré localement avec DPAPI, jamais envoyé ailleurs qu'à Roblox.",
-                     font=FONT_S, text_color=MUT, justify="left", anchor="w").pack(fill="x", padx=18)
-        txt = ctk.CTkTextbox(w, font=("Consolas", 11), fg_color=CARD2)
-        txt.pack(fill="both", expand=True, padx=18, pady=8)
-        row = ctk.CTkFrame(w, fg_color="transparent")
-        row.pack(fill="x", padx=18)
-        ctk.CTkLabel(row, text="Notes :", font=FONT).pack(side="left")
-        notes = ctk.CTkEntry(row, font=FONT, placeholder_text="ex: compte principal...")
-        notes.pack(side="left", padx=8, fill="x", expand=True)
-
-        def do_add():
-            token = txt.get("1.0", "end").strip()
-            btn.configure(state="disabled", text="Vérification...")
-            self.after(150, lambda: self._add_worker(token, notes.get(), w))
-
-        def close():
-            try:
-                w.grab_release()
-            except Exception:
-                pass
-            w.destroy()
-
-        def done(ok, msg):
-            self.log(msg)
-            if ok:
-                self.refresh_accounts_list()
-                close()
-            else:
-                btn.configure(state="normal", text="Ajouter")
-
-        self._add_done = done
-        btn = ctk.CTkButton(w, text="Ajouter", command=do_add)
-        btn.pack(pady=(4, 14))
-
     def _add_worker(self, token, note, win):
         try:
             name, existed = accounts.add_account(token, notes=note)
@@ -701,26 +631,6 @@ class App(ctk.CTk):
             ok = False
             msg = f"Ajout impossible : {e}"
         self.ui(lambda: self._add_done(ok, msg))
-
-    def import_browser(self):
-        self.set_status("Import navigateur en cours... ferme Chrome/Edge pour de meilleurs résultats.")
-
-        def work():
-            try:
-                found = accounts.import_from_browser(log=self.log)
-                self.ui(lambda: self._import_done(found))
-            except Exception as ex:
-                m = f"Import échoué : {ex}"
-                self.ui(lambda m=m: (self._import_done([]), self.log(m)))
-
-        threading.Thread(target=work, daemon=True).start()
-
-    def _import_done(self, found):
-        self.refresh_accounts_list()
-        if found:
-            self.set_status(f"{len(found)} compte(s) importé(s) : {', '.join(found)}")
-        else:
-            self.set_status("Aucune session Roblox trouvée dans les profils du navigateur.")
 
     def refresh_names_thread(self):
         accs = accounts.get_accounts()
@@ -852,9 +762,6 @@ class App(ctk.CTk):
         ctk.CTkButton(lt, text="↻", width=32, height=26, corner_radius=6,
                       fg_color=CARD2, hover_color="#26303f", text_color=MUT,
                       command=self.refresh_names_thread).pack(side="right")
-        ctk.CTkButton(lt, text="⇩ Importer", width=86, height=26, corner_radius=6, font=FONT_S,
-                      fg_color=CARD2, hover_color="#26303f",
-                      command=self.import_browser).pack(side="right", padx=6)
         self.acc_list = ctk.CTkScrollableFrame(left, width=290, fg_color=CARD)
         self.acc_list.pack(fill="both", expand=True)
 
