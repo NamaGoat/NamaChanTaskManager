@@ -84,12 +84,22 @@ def apply_update(exe_path):
     backup = current + ".old"
     bat = os.path.join(tempfile.gettempdir(), "namachan_update.bat")
     script = f"""@echo off
-ping 127.0.0.1 -n 2 > nul
+ping 127.0.0.1 -n 4 > nul
 taskkill /f /im {EXE_NAME} > nul 2>&1
-ping 127.0.0.1 -n 2 > nul
+ping 127.0.0.1 -n 6 > nul
 if exist "{backup}" del /f "{backup}"
+:retry_move
 move /y "{current}" "{backup}" > nul 2>&1
+if errorlevel 1 (
+    ping 127.0.0.1 -n 3 > nul
+    goto retry_move
+)
+:retry_new
 move /y "{exe_path}" "{current}" > nul 2>&1
+if errorlevel 1 (
+    ping 127.0.0.1 -n 3 > nul
+    goto retry_new
+)
 start "" "{current}"
 del /f "%~f0"
 """
