@@ -54,7 +54,7 @@ def check_update(current_version):
 
 def download_update(url, progress_fn=None):
     exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    tmp = os.path.join(tempfile.gettempdir(), "namachan_update.exe")
+    tmp = os.path.join(exe_dir, "namachan_update.exe")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "NamaChanUpdater"})
         with urllib.request.urlopen(req, timeout=120) as r:
@@ -82,7 +82,7 @@ def download_update(url, progress_fn=None):
 def apply_update(exe_path):
     current = os.path.abspath(sys.argv[0])
     backup = current + ".old"
-    bat = os.path.join(tempfile.gettempdir(), "namachan_update.bat")
+    bat = os.path.join(os.path.dirname(current), "namachan_update.bat")
     script = f"""@echo off
 ping 127.0.0.1 -n 4 > nul
 taskkill /f /im {EXE_NAME} > nul 2>&1
@@ -101,6 +101,8 @@ if errorlevel 1 (
     goto retry_new
 )
 start "" "{current}"
+ping 127.0.0.1 -n 3 > nul
+del /f "{exe_path}" > nul 2>&1
 del /f "%~f0"
 """
     with open(bat, "w", encoding="utf-8") as f:
