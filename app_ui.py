@@ -81,7 +81,7 @@ GFX_TOOLTIPS = {
              "• Ciel gris : on\n"
              "• LOD / render distance : max (200k)\n"
              "⚠ NVIDIA conseillé (sur AMD la vision au loin peut se réduire).",
-    "Perf": "FPS max sans fog gris (moteur 21/21).\n"
+    "Perf": "FPS max sans fog gris (moteur 1/21).\n"
             "• Textures : mini (override 1)\n"
             "• Anti-aliasing : off (MSAA -1)\n"
             "• Herbe : off (grass 0)\n"
