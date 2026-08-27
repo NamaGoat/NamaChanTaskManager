@@ -274,6 +274,10 @@ majeur.
    - [x] Refonte historique jeux récents (25/08) : grille à trous remplacée
          par une liste compacte (icône + nom + place/compte + bouton ▶).
    - [ ] Autres QoL à définir avec l'utilisateur
+   - [ ] [À ÉVALUER] Backend graphique : forcer le backend de rendu
+         (FFlagDebugGraphicsPreferD3D11 / PreferVulkan / PreferOpenGL —
+         allowlistés) dans les modes Perf pour un léger boost selon la carte.
+         À tester sur PC avant de décider (ne pas activer sans validation).
 9. [x] Documentation auto : TOUS les changements (bug, feature, QoL) sont
        notés dans `JOURNAL.md` + `AGENTS.md` à chaque modification.
 10. [ ] **Ne jamais push GitHub sans demander** : laisser l'utilisateur
