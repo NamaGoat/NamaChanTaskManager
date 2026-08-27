@@ -387,6 +387,69 @@ l'exe a été testée avec succès par l'utilisateur ✓
 La nuit noire sur Blox Fruits est un comportement normal de Roblox
 (quand FFlagDebugSkyGray n'est pas actif), pas un bug à corriger.
 
+---
 
+## Allowlist FastFlags Roblox + textures (26/08, v1.0.11–v1.0.15)
+
+### Contexte
+Depuis le **29 septembre 2025**, Roblox a introduit le **Fast Flag
+Allowlist** : seuls les flags sur une liste blanche officielle sont
+reconnus par le client. Tout le reste est ignoré silencieusement.
+
+### Flags allowlistés (rendering)
+```
+DFIntDebugFRMQualityLevelOverride    ← FRM (1–21)
+DFIntTextureQualityOverride          ← qualité textures (1=mini, auto=0)
+DFFlagTextureQualityOverrideEnabled  ← active l'override textures
+DFFlagDisableDPIScale                ← désactive DPI scaling
+DFFlagDebugPauseVoxelizer            ← coupe le voxelizer
+FFlagDebugSkyGray                    ← ciel gris
+FIntDebugForceMSAASamples            ← MSAA
+DFIntCSGLevelOfDetailSwitchingDistance* ← LOD (4 distances)
+FFlagDebugGraphicsPreferD3D11/Vulkan/OpenGL
+FFlagHandleAltEnterFullscreenManually
+```
+
+### Flags NON allowlistés (ignorés par Roblox)
+- `DFIntDebugRestrictGCDistance` — censé lever la restriction de distance
+  de dessin, mais ignoré.
+- `FIntRenderShadowIntensity` — censé couper les ombres, ignoré.
+- `FIntDebugTextureManagerSkipMips`, `DFIntPerformanceControlTextureQualityBestUtility`
+  — testés dans v1.0.14, virés car ignorés.
+
+### Fix textures : `DFIntTextureQualityOverride` 0 → 1
+`0` = **Auto** (Roblox décide selon le hardware), pas "minimum".
+Passé à `1` pour forcer le minimum. Ce flag est dans l'allowlist et
+marche, mais Roblox a migré vers **TextureManager2** qui interprète
+le flag différemment — les textures sont pas aussi basses qu'avant.
+
+### Nouveau mode : Perf Render Max (v1.0.15)
+- FRM 21 (moteur max) + textures mini + ombres off + render max.
+- Pour les PC qui veulent voir au loin tout en gardant les optimisations.
+- Ordre menu : Auto / Perf++ / Perf / Perf Render Max / Équilibré / Pro.
+
+### Différence AMD vs NVIDIA
+Sur les tests effectués :
+- NVIDIA (RTX 5080, GTX 1650) : FRM 1 → vision complète ✓
+- AMD (RX 6750 XT) : FRM 1 → vision réduite, void au loin ✗
+
+Le moteur Roblox interprète le FRM différemment selon le constructeur
+de la carte graphique. Les cartes AMD semblent couper le streaming plus
+agressivement avec un FRM bas. Solution : utiliser Perf Render Max (FRM 21)
+ou Pro sur les cartes AMD.
+
+### Bilan modes qualité (mis à jour)
+| Mode | FRM | Ciel | Textures | Ombres | LOD | Usage |
+|------|-----|------|----------|--------|-----|-------|
+| Auto | — | Roblox | — | — | — | laisser faire |
+| Perf++ | 1 | gris | mini | off | 200k | FPS max (NVIDIA) |
+| Perf | 1 | normal | mini | off | 200k | FPS max sans fog |
+| Perf Render Max | 21 | normal | mini | off | 200k | voit au loin + perf |
+| Équilibré | 8 | — | normales | normales | — | compromis |
+| Pro | 21 | — | normales | normales | — | max visuel |
+
+NB : les flags `FIntRenderShadowIntensity` et `DFIntDebugRestrictGCDistance`
+ne sont pas dans l'allowlist et sont possiblement ignorés. Les ombres
+et la restriction de distance dépendent donc du moteur Roblox lui-même.
 
 

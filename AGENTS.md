@@ -176,8 +176,19 @@ majeur.
 - 26/08 SUITE - Modes Perf : render max + suppression ciel gris Perf.
   Perf++ (FRM 1) : LOD monté à 200000 + `DFIntDebugRestrictGCDistance=500000`
   (render distance max). Perf (FRM 21) : `FFlagDebugSkyGray` retiré (ciel
-  normal, nuit visible). Les deux modes ont désormais textures mini, ombres
-  off, render distance max. La nuit noire est un comportement normal Roblox.
+   normal, nuit visible). Les deux modes ont désormais textures mini, ombres
+   off, render distance max. La nuit noire est un comportement normal Roblox.
+- 26/08 SUITE - Allowlist FastFlags Roblox (depuis 29/09/2025) :
+  seuls les flags de la liste blanche sont reconnus. Flags non-allowlistés
+  testés et virés : `DFIntDebugRestrictGCDistance`, `FIntRenderShadowIntensity`,
+  `FIntDebugTextureManagerSkipMips`, `DFIntPerformanceControlTextureQualityBestUtility`.
+  Fix : `DFIntTextureQualityOverride` passé de 0 (auto) à 1 (mini forcé).
+  Nouveau mode **Perf Render Max** (FRM 21 + quality min + render max) pour
+  les cartes AMD qui coupent le streaming avec FRM 1. Diff AMD vs NVIDIA
+  constatée : NVIDIA gère FRM 1 avec vision complète, AMD non.
+  Ordre menu : Auto / Perf++ / Perf / Perf Render Max / Équilibré / Pro.
+- 26/08 SUITE - Convention : ne jamais push GitHub sans demander à
+  l'utilisateur de tester l'exe sur PC d'abord. Réduire le nombre de releases.
 
 ## Liste de progression (roadmap)
 
