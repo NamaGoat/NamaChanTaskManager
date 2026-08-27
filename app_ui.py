@@ -72,12 +72,33 @@ FONT_T = ("Segoe UI", 20, "bold")
 FONT_S = ("Segoe UI", 10)
 
 GFX_TOOLTIPS = {
-    "Auto": "Roblox gère la qualité tout seul (peut repasser en Auto en multi).",
-    "Perf": "Quality min, render max, ciel normal (moteur 1/21).",
-    "Perf++": "Quality min, render max, ciel gris (moteur 1/21).",
-    "Perf Render Max": "Quality min, render MAX, moteur 21/21 — voit au loin.",
-    "Équilibré": "Niveau 8/21 — bon compromis visuel / performances, vision complète.",
-    "Pro": "Niveau 21/21 — rendu au maximum, vision complète.",
+    "Auto": "Roblox gère la qualité tout seul (peut repasser en Auto en multi).\nN'applique AUCUN flag.",
+    "Perf++": "FPS max absolu (moteur 1/21).\n"
+             "• Textures : mini (override 1)\n"
+             "• Anti-aliasing : off (MSAA -1)\n"
+             "• Herbe : off (grass 0)\n"
+             "• Ombres douces : off (voxelizer)\n"
+             "• Ciel gris : on\n"
+             "• LOD / render distance : max (200k)\n"
+             "⚠ NVIDIA conseillé (sur AMD la vision au loin peut se réduire).",
+    "Perf": "FPS max sans fog gris (moteur 21/21).\n"
+            "• Textures : mini (override 1)\n"
+            "• Anti-aliasing : off (MSAA -1)\n"
+            "• Herbe : off (grass 0)\n"
+            "• Ombres douces : off (voxelizer)\n"
+            "• Ciel : normal (nuit visible)\n"
+            "• LOD / render distance : max (200k)\n"
+            "Vision complète et détaillée au loin.",
+    "Perf Render Max": "Pour cartes AMD (moteur 21/21, render max).\n"
+            "• Textures : mini (override 1)\n"
+            "• Anti-aliasing : off (MSAA -1)\n"
+            "• Herbe : off (grass 0)\n"
+            "• Ombres douces : off (voxelizer)\n"
+            "• Ciel : normal\n"
+            "• LOD / render distance : max (200k)\n"
+            "Vision maximale sans couper le streaming.",
+    "Équilibré": "Niveau 8/21 — bon compromis visuel / performances.\nVision complète, pas de dégradation agressive.",
+    "Pro": "Niveau 21/21 — rendu au maximum, vision complète.\nAucune optimisation de dégradation.",
 }
 
 
@@ -993,10 +1014,13 @@ class App(ctk.CTk):
         bar.pack(fill="x", pady=(0, 8))
         inner = ctk.CTkFrame(bar, fg_color="transparent")
         inner.pack(fill="x", padx=12, pady=10)
-        ctk.CTkButton(inner, text="Kill sélection", fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
-                      command=self.kill_selected).pack(side="left")
-        ctk.CTkButton(inner, text="Kill TOUT", fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
-                      command=self.kill_all).pack(side="left", padx=8)
+        self._arm = {}
+        self.btn_kill_sel = ctk.CTkButton(inner, text="Kill sélection", fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+                                          command=lambda: self._armed_kill(self.kill_selected, self.btn_kill_sel, "Kill sélection"))
+        self.btn_kill_sel.pack(side="left")
+        self.btn_kill_all = ctk.CTkButton(inner, text="Kill TOUT", fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+                                          command=lambda: self._armed_kill(self.kill_all, self.btn_kill_all, "Kill TOUT"))
+        self.btn_kill_all.pack(side="left", padx=8)
         ctk.CTkButton(inner, text="Suspendre", fg_color=CARD2, hover_color="#26303f",
                       command=self.suspend_selected).pack(side="left", padx=(14, 0))
         ctk.CTkButton(inner, text="Reprendre", fg_color=CARD2, hover_color="#26303f",
@@ -1028,6 +1052,9 @@ class App(ctk.CTk):
         _gt = lambda: GFX_TOOLTIPS.get(self.opt_gfx.get(), "")
         ToolTip(lbl_gfx, _gt)
         ToolTip(self.opt_gfx, _gt)
+        info_btn = ctk.CTkLabel(finner, text="ℹ", font=FONT_B, text_color=ACCENT, cursor="hand2", width=18)
+        info_btn.pack(side="left", padx=(2, 0))
+        ToolTip(info_btn, _gt)
         ctk.CTkButton(finner, text="Appliquer FastFlags", fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
                       command=self.apply_fps).pack(side="left", padx=(10, 0))
         self.fps_status = ctk.CTkLabel(finner, text="", font=FONT_S, text_color=MUT)
@@ -1071,9 +1098,23 @@ class App(ctk.CTk):
         if not rows:
             self.set_status("Aucune instance Roblox en cours.")
             return
-        if messagebox.askyesno("Confirmer", f"Fermer TOUTES les instances Roblox ({len(rows)}) ?"):
-            killed = [r["pid"] for r in rows if core.kill_pid(r["pid"])]
-            self.log(f"[Kill] TOUT fermé : {len(killed)}/{len(rows)} instance(s) (PID {', '.join(str(p) for p in killed)}).")
+        killed = [r["pid"] for r in rows if core.kill_pid(r["pid"])]
+        self.log(f"[Kill] TOUT fermé : {len(killed)}/{len(rows)} instance(s) (PID {', '.join(str(p) for p in killed)}).")
+
+    def _armed_kill(self, action, btn, label):
+        if self._arm.get(id(btn)):
+            self._arm[id(btn)] = False
+            btn.configure(text=label)
+            action()
+            return
+        self._arm[id(btn)] = True
+        btn.configure(text="Confirmer ?")
+        self.after(2500, lambda: self._disarm(btn, label))
+
+    def _disarm(self, btn, label):
+        if self._arm.get(id(btn)):
+            self._arm[id(btn)] = False
+            btn.configure(text=label)
 
     def suspend_selected(self):
         pids = [p for p in self._sel_pids() if core.suspend_pid(p)]

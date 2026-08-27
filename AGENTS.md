@@ -189,6 +189,25 @@ majeur.
   Ordre menu : Auto / Perf++ / Perf / Perf Render Max / Équilibré / Pro.
 - 26/08 SUITE - Convention : ne jamais push GitHub sans demander à
   l'utilisateur de tester l'exe sur PC d'abord. Réduire le nombre de releases.
+- 26/08 SUITE - Nettoyage + boost modes Perf (allowlist officielle 18 flags,
+  inchangée en 2026).
+  RETIRÉS (hors allowlist, ignorés silencieusement) : `FIntRenderShadowIntensity`
+  (ombres off), `DFIntDebugRestrictGCDistance` (render distance). Ils ne faisaient
+  plus aucun effet.
+  AJOUTÉS aux 3 modes (perf/perfplus/perfrendermax), tous allowlistés :
+  `FIntDebugForceMSAASamples=-1` (anti-aliasing off), `FIntFRMMinGrassDistance=0`
+  + `FIntFRMMaxGrassDistance=0` (herbe off). Le seul levier "ombres douces" restant
+  est `DFFlagDebugPauseVoxelizer` (déjà présent).
+  Rappel des flags allowlistés non utilisés restants : backend graphique
+  (`FFlagDebugGraphicsPreferD3D11/Vulkan/OpenGL`), `FFlagHandleAltEnterFullscreenManually`.
+- 26/08 SUITE - UI : détail modes qualité + confirmation en double-clic.
+  (1) Tooltips qualité enrichis (`GFX_TOOLTIPS` dans app_ui.py) : chaque mode
+  liste désormais exactement tout ce qu'il fait (FRM, textures, AA off, herbe off,
+  ombres douces, ciel) + bouton "ℹ" à côté du menu Qualité (vue Multi) qui affiche
+  le même détail au survol — sans ouvrir de nouvelle fenêtre.
+  (2) Kill sélection / Kill TOUT : confirmation en double-clic sans popup
+  (`_armed_kill` / `_disarm`) : 1er clic -> le bouton passe en "Confirmer ?",
+  2e clic dans 2,5 s -> exécute. Le `messagebox.askyesno` de kill_all retiré.
 
 ## Liste de progression (roadmap)
 

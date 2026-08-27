@@ -453,3 +453,53 @@ ne sont pas dans l'allowlist et sont possiblement ignorés. Les ombres
 et la restriction de distance dépendent donc du moteur Roblox lui-même.
 
 
+
+---
+
+## Nettoyage + boost modes Perf (26/08)
+
+### Problème
+Les modes Perf (perf/perfplus/perfrendermax) contenaient 2 flags qui
+ne font plus AUCUN effet depuis l'allowlist Roblox (29/09/2025) :
+- `FIntRenderShadowIntensity` (ombres off) — hors allowlist, ignoré.
+- `DFIntDebugRestrictGCDistance` (render distance max) — hors allowlist, ignoré.
+
+Ils donnaient une fausse impression d'optimisation et brouillaient le code.
+
+### Fix
+- Les 2 flags morts retirés des 3 presets Perf.
+- 3 flags allowlistés AJOUTÉS (donc réellement reconnus par le client) :
+  `FIntDebugForceMSAASamples=-1` (anti-aliasing off),
+  `FIntFRMMinGrassDistance=0` + `FIntFRMMaxGrassDistance=0` (herbe off).
+- Le seul levier "ombres douces" restant est `DFFlagDebugPauseVoxelizer`
+  (déjà présent). Les ombres dures ne sont pas coupables via allowlist.
+- `FFlagDebugSkyGray` conservé seulement sur le preset `perf` (UI Perf++).
+
+### Validation
+Import `core` OK. À tester par l'utilisateur sur PC (modes Perf++/Perf/
+Perf Render Max) avant toute release GitHub.
+
+---
+
+## UI : détail modes qualité + confirmation double-clic (26/08)
+
+### Contexte
+L'utilisateur ne voyait pas clairement tout ce que fait chaque mode de
+qualité (Perf++, Perf, Perf Render Max...). Et les popups (messagebox) pour
+confirmer les actions (Kill TOUT) étaient pénibles à fermer.
+
+### Fix
+1. **Tooltips qualité enrichis** (GFX_TOOLTIPS, app_ui.py) : chaque mode
+   liste ligne par ligne ce qu'il applique (niveau moteur FRM, textures mini,
+   anti-aliasing off, herbe off, ombres douces off, ciel gris/normal, LOD max)
+   + un avertissement AMD pour Perf++.
+   Ajout d'un bouton **"ℹ"** à côté du menu Qualité (vue Multi) qui affiche
+   le même détail au survol — aucune nouvelle fenêtre (tooltip auto).
+2. **Confirmation en double-clic** pour Kill sélection et Kill TOUT :
+   premier clic -> le bouton change de texte en "Confirmer ?", second clic
+   dans 2,5 s -> exécute. Plus de popup messagebox. Réalisé via
+   `self._arm` + `_armed_kill()` / `_disarm()`.
+
+### Validation
+Syntaxe OK, import OK, exe rebuildé et copié sur le Bureau (après fermeture
+de l'exe en cours). À tester par l'utilisateur.
