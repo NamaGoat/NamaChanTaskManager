@@ -218,6 +218,18 @@ majeur.
   version.
   FIX (v1.0.20) : ajout de `CREATE_BREAKAWAY_FROM_JOB` (`0x01000000`) aux
   creationflags du Popen pour que le PowerShell survive à la mort du parent.
+- 26/08 SUITE - FIX DÉFINITIF UPDATER (v1.0.22) : le BREAKAWAY_FROM_JOB seul
+  ne suffisait pas (le `.new` restait, version toujours inchangée). Cause
+  racine probable : le script PowerShell détaché était tué/non-exécuté
+  (encodage UTF-8 sans BOM du ps1 lu en ANSI par PS 5.1 -> chemin corrompu si
+  caractères non-ASCII, + job object onefile qui tue les enfants à la mort du
+  parent). NOUVELLE APPROCHE : `apply_update()` ne passe PLUS par PowerShell.
+  Le remplacement se fait en PUR PYTHON, de façon synchrone dans le process,
+  avant `os._exit(0)` : `os.rename(exe→.old)` (autorisé sur Windows pour un
+  exe en cours), `shutil.copy2(.new→exe)`, relance du nouveau en
+  `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | 0x01000000`, puis exit.
+  Plus aucun sous-processus PowerShell à maintenir en vie. `import tempfile`
+  supprimé, `import shutil` ajouté.
 - 26/08 SUITE - UI : détail modes qualité + confirmation en double-clic.
   (1) Tooltips qualité enrichis (`GFX_TOOLTIPS` dans app_ui.py) : chaque mode
   liste désormais exactement tout ce qu'il fait (FRM, textures, AA off, herbe off,

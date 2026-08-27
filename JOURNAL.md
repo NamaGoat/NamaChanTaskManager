@@ -562,3 +562,36 @@ mort du parent, donc le rename/copy/relance s'exécute.
 ### Validation
 Syntaxe OK. Exe v1.0.20 rebuildé et copié sur le Bureau. À retester en
 auto-update (v1.0.19 -> v1.0.20) par l'utilisateur.
+
+---
+
+## Fix DEFINITIF Updater : remplacement en pur Python (v1.0.22, 26/08)
+
+### Contexte
+Le BREAKAWAY_FROM_JOB (v1.0.20) n'a pas suffi : le .new restait présent
+sur le Bureau et l'app restait sur l'ancienne version après relance.
+
+### Cause
+Le script PowerShell détaché restait fragile :
+- Écrit en UTF-8 sans BOM, lu en ANSI par PowerShell 5.1 -> chemin corrompu
+  si le dossier contient des caractères non-ASCII (nom d'utilisateur avec
+  accent, etc.) -> les opérations échouaient silencieusement.
+- Selon l'environnement, le process détaché pouvait aussi être tué à la mort
+  du parent (job object PyInstaller onefile) malgré le BREAKAWAY.
+
+### Fix
+pply_update() ne passe PLUS par PowerShell. Le remplacement se fait en
+PUR PYTHON, de façon synchrone dans le process, avant os._exit(0) :
+1. os.rename(exe -> .old) : renommer un exe en cours d'execution est
+   autorisé sur Windows (on le renomme, on n'ecrit pas dedans). Retry si
+   verrouille.
+2. shutil.copy2(.new -> exe) : le chemin etait libre apres le rename.
+3. Relance du nouveau exe en DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+   | 0x01000000, puis os._exit(0).
+
+Plus aucun sous-processus PowerShell a maintenir en vie, plus de probleme
+d'encodage du script. import tempfile supprime, import shutil ajoute.
+
+### Validation
+Syntaxe + import OK. Exe v1.0.22 rebuild. A retester en auto-update
+(v1.0.21 -> v1.0.22) par l'utilisateur.

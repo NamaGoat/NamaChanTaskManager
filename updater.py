@@ -1,9 +1,9 @@
 import json
 import glob
 import os
+import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.request
 
@@ -93,31 +93,26 @@ def download_update(url, progress_fn=None):
 def apply_update(exe_path):
     current = os.path.abspath(sys.argv[0])
     backup = current + ".old"
-    ps1 = os.path.join(tempfile.gettempdir(), "namachan_update.ps1")
-    cur = current.replace("'", "''")
-    bak = backup.replace("'", "''")
-    upd = exe_path.replace("'", "''")
-    ps1_path = ps1.replace("'", "''")
-    exe_dir = os.path.dirname(current)
-    cleanup = " ".join(
-        f"Remove-Item '{os.path.join(exe_dir, f).replace(chr(39), chr(39)+chr(39))}' -Force -ErrorAction SilentlyContinue;"
-        for f in os.listdir(exe_dir)
-        if f.endswith(".old") or f.endswith(".vbs")
-    )
-    script = (
-        "Start-Sleep -Seconds 3\n"
-        f"Remove-Item '{bak}' -Force -ErrorAction SilentlyContinue\n"
-        f"Rename-Item '{cur}' '{bak}' -Force -ErrorAction SilentlyContinue\n"
-        f"Copy-Item '{upd}' '{cur}' -Force\n"
-        f"Remove-Item '{upd}' -Force -ErrorAction SilentlyContinue\n"
-        f"{cleanup}\n"
-        f"Start-Process '{cur}'\n"
-        f"Remove-Item '{ps1_path}' -Force -ErrorAction SilentlyContinue\n"
-    )
-    with open(ps1, "w", encoding="utf-8") as f:
-        f.write(script)
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW | 0x01000000
-    subprocess.Popen(
-        ["powershell", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", ps1],
-        creationflags=flags)
+    for _ in range(50):
+        try:
+            os.rename(current, backup)
+            break
+        except OSError:
+            time.sleep(0.2)
+    else:
+        return False
+    try:
+        shutil.copy2(exe_path, current)
+    except OSError:
+        try:
+            os.rename(backup, current)
+        except OSError:
+            pass
+        return False
+    try:
+        os.remove(exe_path)
+    except OSError:
+        pass
+    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | 0x01000000
+    subprocess.Popen([current], creationflags=flags)
     os._exit(0)
