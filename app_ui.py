@@ -26,7 +26,7 @@ import core
 import features
 import updater
 
-__version__ = "1.0.23"
+__version__ = "1.0.24"
 
 BG = "#0d1118"
 CARD = "#151b26"
@@ -1332,8 +1332,9 @@ class App(ctk.CTk):
     def _on_download_done(self, path):
         self.btn_download.configure(state="normal", text="Mettre à jour")
         self.btn_check.configure(state="normal")
-        self.lbl_upd_info.configure(text="Téléchargé ! Redémarrage…", text_color=GREEN)
+        self.lbl_upd_info.configure(text="Mise à jour installée ! Relance l'app.", text_color=GREEN)
         self.log(f"[Update] Fichier téléchargé, application de la mise à jour…")
+        self.log(f"[Update] Mise à jour appliquée. Fermeture — relance l'app pour finir.")
         self.after(800, lambda: updater.apply_update(path))
 
     def _on_download_error(self, err):

@@ -230,6 +230,13 @@ majeur.
   `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | 0x01000000`, puis exit.
   Plus aucun sous-processus PowerShell à maintenir en vie. `import tempfile`
   supprimé, `import shutil` ajouté.
+- 26/08 SUITE - Popup "Security validation failure / failed to obtain exe path
+  for parent process" au moment de l'update : causé par la RELANCE AUTOMATIQUE
+  du nouvel exe après le remplacement. FIX (v1.0.24) : `apply_update()` ne
+  relance PLUS le nouveau exe automatiquement. Il remplace le fichier puis
+  `os._exit(0)`, et l'UI demande à l'utilisateur de relancer l'app manuellement
+  ("Mise à jour installée ! Relance l'app."). Plus de process enfant relancé
+  => plus de popup PyInstaller.
 - 26/08 SUITE - UI : détail modes qualité + confirmation en double-clic.
   (1) Tooltips qualité enrichis (`GFX_TOOLTIPS` dans app_ui.py) : chaque mode
   liste désormais exactement tout ce qu'il fait (FRM, textures, AA off, herbe off,

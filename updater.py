@@ -113,6 +113,4 @@ def apply_update(exe_path):
         os.remove(exe_path)
     except OSError:
         pass
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | 0x01000000
-    subprocess.Popen([current], creationflags=flags)
     os._exit(0)

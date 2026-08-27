@@ -595,3 +595,26 @@ d'encodage du script. import tempfile supprime, import shutil ajoute.
 ### Validation
 Syntaxe + import OK. Exe v1.0.22 rebuild. A retester en auto-update
 (v1.0.21 -> v1.0.22) par l'utilisateur.
+
+---
+
+## Popup PyInstaller à l'update : suppression de la relance auto (v1.0.24, 26/08)
+
+### Contexte
+L'update installe bien la nouvelle version, mais PyInstaller affiche au
+lancement du nouvel exe : "Security validation failure - failed to obtain
+exe path for parent process".
+
+### Cause
+Ce popup est lie a la RELANCE AUTOMATIQUE du nouvel exe juste apres le
+remplacement : le nouveau process est lance alors que le parent vient de
+mourir (contexte de validation PyInstaller inhabituel) -> warning.
+
+### Fix
+pply_update() ne relance PLUS le nouveau exe automatiquement. Il fait le
+remplacement (rename -> .old, copy2 -> exe) puis os._exit(0). L'UI affiche
+"mise a jour installee ! Relance l'app" et l'utilisateur relance manuellement
+-> pas de process enfant relance automatiquement, plus de popup.
+
+### Validation
+Syntaxe OK. Exe v1.0.24 rebuild. A retester en auto-update par l'utilisateur.
