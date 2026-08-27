@@ -209,6 +209,15 @@ majeur.
   MÊME répertoire que l'exe (`os.path.dirname(sys.argv[0])`, ex. le Bureau) + copie
   sur place. C'était le "fix" documenté v1.0.10 qui avait été perdu/régressé.
   `cleanup_old_files()` nettoie déjà `namachan_update.*` au démarrage.
+- 26/08 SUITE - Diagnostiqué (v1.0.19 ne s'appliquait pas, restait en 0.18) :
+  le download fonctionne (fait dans le process avant exit) mais le script
+  PowerShell lancé en `DETACHED_PROCESS` était TUÉ quand le parent PyInstaller
+  onefile faisait `os._exit(0)` (le job object onefile tue les enfants à la
+  mort du parent). Résultat : ni rename ni copy, `.new` nettoyé au démarrage
+  suivant par `cleanup_old_files()` -> "il ne reste rien" + toujours l'ancienne
+  version.
+  FIX (v1.0.20) : ajout de `CREATE_BREAKAWAY_FROM_JOB` (`0x01000000`) aux
+  creationflags du Popen pour que le PowerShell survive à la mort du parent.
 - 26/08 SUITE - UI : détail modes qualité + confirmation en double-clic.
   (1) Tooltips qualité enrichis (`GFX_TOOLTIPS` dans app_ui.py) : chaque mode
   liste désormais exactement tout ce qu'il fait (FRM, textures, AA off, herbe off,

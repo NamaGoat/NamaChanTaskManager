@@ -116,8 +116,8 @@ def apply_update(exe_path):
     )
     with open(ps1, "w", encoding="utf-8") as f:
         f.write(script)
+    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW | 0x01000000
     subprocess.Popen(
         ["powershell", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", ps1],
-        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW)
-    time.sleep(0.5)
+        creationflags=flags)
     os._exit(0)

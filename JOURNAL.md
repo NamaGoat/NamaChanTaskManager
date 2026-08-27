@@ -533,3 +533,32 @@ amachan_update.* au démarrage.
 Le bug étant dans l'updater lui-même, il faut livrer un NOUVEAU build (v1.0.18)
 pour que le fix soit effectif. Un simple nouvel "update" via l'ancien updater
 n'aurait pas corrigé le remplacement.
+
+---
+
+## Bug Updater : script PowerShell tué à la mort du parent (v1.0.19, 26/08)
+
+### Contexte
+Test d'auto-update v1.0.18 -> v1.0.19 : la MAJ est détectée, le download se
+fait, mais après redémarrage l'app reste en 0.18. Sur le Bureau il ne restait
+ni .old ni .new après l'échec.
+
+### Cause
+Le téléchargement (fait dans le process Python, avant os._exit(0)) réussit
+et crée 
+amachan_update.new. Mais le script PowerShell de remplacement était
+lancé en DETACHED_PROCESS **sans** CREATE_BREAKAWAY_FROM_JOB. Or PyInstaller
+en mode onefile enferme l'app dans un **Job Object** qui tue tous les
+sous-processus quand le parent meurt. Quand l'app faisait os._exit(0), le
+PowerShell était tué AVANT le rename/copy. Du coup le .new restait seul,
+puis était supprimé au démarrage suivant par cleanup_old_files() -> "il ne
+reste rien" et toujours l'ancienne version.
+
+### Fix
+Ajout de CREATE_BREAKAWAY_FROM_JOB ( x01000000) aux creationflags du
+Popen : le PowerShell s'affranchit du job object PyInstaller et survit à la
+mort du parent, donc le rename/copy/relance s'exécute.
+
+### Validation
+Syntaxe OK. Exe v1.0.20 rebuildé et copié sur le Bureau. À retester en
+auto-update (v1.0.19 -> v1.0.20) par l'utilisateur.
