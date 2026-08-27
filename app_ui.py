@@ -26,7 +26,7 @@ import core
 import features
 import updater
 
-__version__ = "1.0.18"
+__version__ = "1.0.19"
 
 BG = "#0d1118"
 CARD = "#151b26"
