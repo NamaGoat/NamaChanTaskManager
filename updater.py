@@ -64,7 +64,8 @@ def check_update(current_version):
 
 
 def download_update(url, progress_fn=None):
-    tmp = os.path.join(tempfile.gettempdir(), "namachan_update.exe")
+    exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    tmp = os.path.join(exe_dir, "namachan_update.new")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "NamaChanUpdater"})
         with urllib.request.urlopen(req, timeout=120) as r:

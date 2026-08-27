@@ -200,6 +200,15 @@ majeur.
   est `DFFlagDebugPauseVoxelizer` (déjà présent).
   Rappel des flags allowlistés non utilisés restants : backend graphique
   (`FFlagDebugGraphicsPreferD3D11/Vulkan/OpenGL`), `FFlagHandleAltEnterFullscreenManually`.
+- 26/08 SUITE - BUG UPDATER (v1.0.16->17, signalé user : download OK mais
+  remplacement échoué, restait en v16) : `updater.download_update()` téléchargeait
+  dans `tempfile.gettempdir()` (dossier temp système) puis `apply_update` copiait
+  le fichier temp vers l'exe. La validation PyInstaller/antivirus rejetait le
+  remplacement depuis un dossier temporaire -> l'app restait sur l'ancienne version.
+  FIX : `download_update()` télécharge désormais `namachan_update.new` dans le
+  MÊME répertoire que l'exe (`os.path.dirname(sys.argv[0])`, ex. le Bureau) + copie
+  sur place. C'était le "fix" documenté v1.0.10 qui avait été perdu/régressé.
+  `cleanup_old_files()` nettoie déjà `namachan_update.*` au démarrage.
 - 26/08 SUITE - UI : détail modes qualité + confirmation en double-clic.
   (1) Tooltips qualité enrichis (`GFX_TOOLTIPS` dans app_ui.py) : chaque mode
   liste désormais exactement tout ce qu'il fait (FRM, textures, AA off, herbe off,

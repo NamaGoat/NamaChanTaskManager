@@ -503,3 +503,33 @@ confirmer les actions (Kill TOUT) étaient pénibles à fermer.
 ### Validation
 Syntaxe OK, import OK, exe rebuildé et copié sur le Bureau (après fermeture
 de l'exe en cours). À tester par l'utilisateur.
+
+---
+
+## Bug Updater : remplacement échoué (restait en v16) (26/08)
+
+### Contexte
+L'utilisateur (ami) avec la v1.0.16 voyait bien l'update v1.0.17 se détecter
+et se télécharger, mais après redémarrage l'app restait en v16 : le fichier
+téléchargé ne remplaçait pas l'exe.
+
+### Cause
+updater.download_update() téléchargeait dans 	empfile.gettempdir()
+(dossier TEMP système), et pply_update() faisait un Copy-Item du fichier
+temp vers l'exe (Bureau). La validation PyInstaller/antivirus rejetait le
+remplacement d'un exe depuis un dossier temporaire -> le .new était
+téléchargé mais jamais appliqué. C'était le fix documenté en v1.0.10 (download
+dans le même répertoire que l'exe) qui avait été régressé/perdu dans le code.
+
+### Fix
+download_update() télécharge désormais 
+amachan_update.new dans le MÊME
+répertoire que l'exe (os.path.dirname(sys.argv[0]), ex. le Bureau) puis
+pply_update le copie sur place. cleanup_old_files() nettoie déjà les
+
+amachan_update.* au démarrage.
+
+### Remarque
+Le bug étant dans l'updater lui-même, il faut livrer un NOUVEAU build (v1.0.18)
+pour que le fix soit effectif. Un simple nouvel "update" via l'ancien updater
+n'aurait pas corrigé le remplacement.
