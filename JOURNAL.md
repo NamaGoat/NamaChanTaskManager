@@ -618,3 +618,189 @@ remplacement (rename -> .old, copy2 -> exe) puis os._exit(0). L'UI affiche
 
 ### Validation
 Syntaxe OK. Exe v1.0.24 rebuild. A retester en auto-update par l'utilisateur.
+
+---
+
+## Diagnostic perf : PC portable entry-level (26/08)
+
+### Contexte
+L'ami de l'utilisateur testait les modes Perf sur un PC portable :
+**i5-10300H** (4C/8T, Comet Lake 2020, laptop) + **GTX 1650 mobile 4GB**.
+Aucun gain visible des modes Perf++/Perf par rapport à Auto.
+
+### Cause
+- **CPU-bound** : Roblox est avant tout limité par le CPU. Sur laptop,
+  le TDP est plafonné et le CPU throttle thermiquement (90-95°C sous charge).
+  Les modes Perf ne réduisent que la charge GPU (textures, ombres, AA) —
+  or le GPU n'est déjà pas le bottleneck.
+- **GPU entry-level** : la GTX 1650 mobile 4GB est déjà en tension sur
+  Roblox même en mode Auto. Les flags qualité ne changent presque rien.
+- Les modes Perf ne peuvent pas améliorer un CPU qui plafonne.
+
+### Recommandations données
+- Limiter les FPS à 60 (au lieu de 120+) sur laptop de cette génération.
+- Vérifier dans les paramètres Windows (batterie → performances élevées)
+  que le GPU dédié (GTX 1650) est bien activé et pas l'Intel UHD intégré.
+
+## "Rejoindre un joueur" qui marche pas + nouvelle feature "Amis en ligne" (08/09)
+
+### Contexte
+L'utilisateur essayait de rejoindre un ami via son pseudo ("Rejoindre un
+joueur"), souvent quand lui-même était déjà en jeu (ex. Blox Fruits) :
+résultat "introuvable" ou ça ne le mettait pas en jeu. Il a aussi demandé
+une option pour voir qui parmi ses amis est connecté et les rejoindre
+depuis le compte sélectionné.
+
+### Cause
+1. **BUG RACINE — mauvais nom de champ** : l'API présence Roblox renvoie
+   `userPresenceType` (avec "user" devant) et PAS `presenceType`. L'ancien
+   code lisait `presenceType` -> champ toujours absent (None) -> TOUT le
+   monde était classé "offline", même les joueurs en partie. D'où :
+   - join by player : "introuvable"/"pas en jeu" même quand le joueur
+     était sur Blox Fruits ;
+   - la future liste d'amis ne montrerait jamais personne en ligne (0
+     résultat = "ça load pas les friends").
+2. **Endpoint friends inexistant** : `friends.roblox.com/v1/my/friends`
+   renvoie 404 -> il faut `friends.roblox.com/v1/users/{userId}/friends`.
+   Cet endpoint donne les IDs mais AVEC les noms VIDES -> il faut en plus
+   un batch `users.roblox.com/v1/users` (POST) pour les usernames.
+3. **Rate-limit** : l'endpoint usernames (`/v1/usernames/users`) est très
+   sensible au 429 quand on enchaîne des requêtes.
+
+### Fix (partie 1 — "Rejoindre un joueur")
+- Parsing corrigé : `ptype = p.get("userPresenceType", p.get("presenceType", 0))`;
+  valeurs 0=offline, 1=online, 2=in_game (avec placeId/gameId/lastLocation).
+- `accounts.get_player_presence(user_id, token=None)` accepte le
+  `.ROBLOSECURITY` du compte sélectionné -> présence fiable (même serveur).
+- Refactor présence : `accounts.get_users_presence(user_ids, token=)` en
+  batch (jusqu'à ~100 IDs en 1 appel) -> `{user_id: {status, place_id,
+  job_id, last}}`. `get_player_presence` n'est plus qu'un wrapper.
+- `resolve_player` loggue le code HTTP (`_last_resolve_status`).
+- Fallback : si `resolve_player` échoue (même sur 429), on cherche le
+  pseudo dans la liste d'amis du compte sélectionné (match name/displayName
+  insensible à la casse).
+
+### nouvelle feature (partie 2 — "Amis en ligne")
+- `accounts.get_friends(user_id, token)` : GET
+  `friends.roblox.com/v1/users/{user_id}/friends` (pagination limit=100)
+  -> IDs ; puis noms via `_get_users_batch` (POST `/v1/users`, lots de 100,
+  retry sur 429). Retour : liste [{id, name, display}].
+- Carte "AMIS EN LIGNE" dans la vue Comptes (sous "Rejoindre un joueur") :
+  bouton "⟳ Charger" -> charge les amis du compte sélectionné + leur
+  présence batch -> liste des amis en ligne (🟢 online / 🎮 en jeu) avec
+  bouton ▶ pour rejoindre (même serveur si gameId, sinon serveur public).
+- Compteur dans le header de la carte ; displayName affiché, pseudo entre
+  parenthèses quand il diffère.
+
+### UI compactée (retour des "jeux récents" disparus)
+La vue Comptes débordait verticalement : en ajoutant la carte Amis,
+la section "Jeux récents" sortait de l'écran (l'utilisateur croyait que
+les vieux jeux avaient été supprimés). Fix :
+- panneau droit transformé en CTkScrollableFrame ;
+- carte "Choisir un jeu" réduite (aperçu 64px au lieu de 120, bouton
+  Rejoindre 36px, texte minimal) ;
+- `rec_grid` en hauteur fixe (expand retiré) -> tout redevient visible.
+
+### Validation
+- Code source uniquement (pas encore push GitHub / Bureau / exe).
+- Testé en local avec les vrais comptes : 52 amis récupérés, 2 en ligne
+  détectés in_game (Avant-gardes d'anime, Dernier arrêt) avec gameId +
+  placeId -> le join même serveur est possible.
+- Reste à tester sur PC par l'utilisateur : clic "⟳ Charger", affichage
+  des en-ligne, join par ami, et join par pseudo confirmé.
+
+### Évolutions demandées par l'utilisateur (même jour)
+1. **Layout** : les 2 cartes (Amis / Jeux récents) étaient empilées,
+   il fallait scroller pour voir les jeux récents. Passé en côte à côte,
+   puis (toujours jugé chelou) en **CTkTabview unique** avec 2 onglets
+   "AMIS EN LIGNE" / "JEUX RÉCENTS" (hauteur 230) — plus de scroll.
+2. **Amis H24** : plus besoin de cliquer "Charger". `load_friends(auto=True)`
+   est déclenché :
+   - à l'ouverture de la vue Comptes (`show_view`) ;
+   - à chaque changement de compte (`select_account`) ;
+   - toutes les 60 s (`friends_refresh_loop`, seulement si la vue Comptes
+     est affichée, contrôlé par `self._current_view`).
+   Anti-rafale : skip si dernier load < 3 s (`_friends_last_load`).
+   `_friends_thread` a été sécurisé (try/except global + logs `[Amis]`)
+   pour ne jamais bloquer le bouton ni laisser une exception silencieuse.
+   C'est légal : seules les API officielles Roblox sont utilisées
+   (friends.roblox.com, presence.roblox.com, users.roblox.com) — les
+   mêmes que le site roblox.com, avec le cookie du compte de l'utilisateur.
+
+## 08/09 SUITE (3) - Tetes des amis en ligne + robustesse ~300 amis
+
+### Contexte
+L'utilisateur veut voir les AVATARS (tetes) des joueurs en ligne dans la
+liste Amis, et tester avec son compte principal (~300 amis) pour verifier
+que le chargement ne bugue pas.
+
+### Problem / cause
+- L'ancien code chargeait UN avatar a la fois (_avatar_for) : sur 300
+  amis ce serait 300 requetes individuelles -> tres lent et risque de
+  rate-limit.
+- _get_users_batch faisait les requetes POST en SEQUENTIEL (1 lot de
+  100 a la fois) : 312 IDs -> 14.7 s (!). Le goulot etait le nombre de
+  requetes, pas le rate-limit.
+- get_users_presence n'avait AUCUNE pagination : un POST unique avec
+  300 userIds risquait 429 ou la troncature du body.
+
+### Fix
+1. **Tetes 32px par liste d'amis** (_avatars_map dans app_ui.py) :
+   un seul appel batch vatar-headshot?userIds=a,b,c par lot de 100,
+   puis telechargement des PNG en threads paralleles. Les tetes
+   arrivent APRES le rendu (nom + statut immediats, visage ensuite),
+   appliquees via self.ui().
+2. **_get_users_batch parallellise** (accounts.py) : un thread par lot
+   de 100, timeout 8 s, backoff 429 reduit a 1 s. 312 IDs : 14.7 s -> 0.2 s.
+3. **get_users_presence pagine + parallellise** : un thread par lot de
+   100 ; retour identique ({user_id: {status, place_id, job_id, last}}),
+   appels existants inchanges. 52 presences en 0.2 s.
+
+### Validation
+- Qd parallele : 312 IDs resolus en 0.2 s (au lieu de 14.7 s), presence
+  52 en 0.2 s.
+- Rendu UI complet teste en local (tetes reellement chargees depuis le
+  reseau) : OK.
+- Reste a tester par l'utilisateur sur SON compte principal (~300 amis) :
+  vitesse du chargement, affichage des tetes, absence de bug.
+
+## Pseudos des amis affiches en ID au lieu du pseudo (08/09 SOIR)
+
+### Contexte
+L'utilisateur etait sur son alt et a bascule sur le compte principal : la
+liste "Amis en ligne" affichait les IDs numeriques au lieu des pseudos.
+
+### Cause
+L'affichage du pseudo passait par le batch POST `users.roblox.com/v1/users`.
+Cet endpoint est en rate-limit quasi permanent (HTTP 429), meme avec le
+cookie `.ROBLOSECURITY` du compte. Quand il echouait, `_get_users_batch`
+retournait vide et le fallback codait le pseudo = `str(id)` -> liste pleine
+d'IDs.
+Le GET individuel `users.roblox.com/v1/users/{id}`, lui, marche parfaitement
+(test : "Roblox", "nvrlnd" resolus sans probleme).
+
+### Fix
+Deux changements :
+1. **`accounts._get_users_individual(ids, token)`** : nouveau helper qui
+   resout les pseudos par GET individuel un par un, en parallele (semaphore
+   de 10, retry 429 avec backoff 0.6 s, 404/400 ignores). Fiable meme en
+   plein rate-limit.
+2. **`accounts.get_friends(..., resolve_names=True)`** : nouveau parametre.
+   Si `False`, il ne renvoie que les IDs bruts (sans le batch 429) ->
+   {id, name=ID, display=ID}.
+3. **Flux des amis en ligne** (`_friends_thread` dans app_ui.py) : charge
+   les IDs via `get_friends(resolve_names=False)` (rapide, pas de batch) ->
+   presence batch -> ne resout les pseudos QUE des amis EN LIGNE via
+   `_get_users_individual` (petit set de ~2-10, pas les 300) -> vrais
+   display name + pseudo.
+
+Le fallback de "Rejoindre un joueur" (resolve_player, ligne 946) garde
+`get_friends(resolve_names=True)` par defaut, inchange.
+
+### Validation (en local, compte principal)
+- get_friends(resolve_names=False) : 52 IDs instantanement.
+- presence batch : distingue bien l'ami en ligne.
+- _get_users_individual : resout le pseudo « xXdevXx_34 | wolf_storm ».
+- Syntaxe des deux fichiers verifiee : OK.
+- A tester par l'utilisateur : bascule entre comptes -> pseudos reels
+  affiches pour les amis en ligne.

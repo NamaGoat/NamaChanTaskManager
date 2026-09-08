@@ -3,9 +3,11 @@
   "command": {
     "roadmap": {
       "description": "Voir où on en est (roadmap NamaChan)",
-      "template": "Affiche la roadmap du projet (section 'Liste de progression (roadmap)' de AGENTS.md) sous forme de checklist compacte : [x] fait, [~] en cours, [ ] à faire. Termine par une seule ligne : la prochaine étape concrète.",
-      "agent": "build",
-      "subtask": false
+      "template": "Affiche la roadmap du projet (section 'Liste de progression (roadmap)' de AGENTS.md) sous forme de checklist compacte : [x] fait, [~] en cours, [ ] à faire. Termine par une seule ligne : la prochaine étape concrète."
+    },
+    "app": {
+      "description": "Lancer l'app (app_ui.py) avec le bon interpréteur Python310",
+      "template": "Lance l'application NamaChan avec l'interpréteur Python310. Utilise la commande Bash : Start-Process 'C:\\Users\\namaz\\AppData\\Local\\Programs\\Python\\Python310\\python.exe' -ArgumentList 'app_ui.py' -WorkingDirectory 'C:\\Users\\namaz\\PycharmProjects\\NamaChanTaskManager' -WindowStyle Normal. Confirme ensuite juste : 'App lancée (Python310).'"
     }
   }
 }

@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -200,30 +201,195 @@ def resolve_player(username):
         with urllib.request.urlopen(req, timeout=10) as r:
             d = json.loads(r.read()).get("data", [])
             return d[0] if d else None
+    except urllib.error.HTTPError as e:
+        _last_resolve_status["code"] = e.code
+        return None
     except Exception:
+        _last_resolve_status["code"] = 0
         return None
 
 
-def get_player_presence(user_id):
-    url = "https://presence.roblox.com/v1/presence/users"
-    body = json.dumps({"userIds": [int(user_id)]}).encode()
-    req = urllib.request.Request(url, data=body, method="POST",
-                                 headers={"Content-Type": "application/json",
-                                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+def get_player_presence(user_id, token=None):
+    res = get_users_presence([int(user_id)], token=token)
+    return res.get(int(user_id)) or None
+
+
+def get_users_presence(user_ids, token=None):
+    user_ids = [int(x) for x in user_ids if x]
+    if not user_ids:
+        return {}
+    out = {}
+    lock = threading.Lock()
+
+    def do_chunk(chunk):
+        nonlocal out
+        url = "https://presence.roblox.com/v1/presence/users"
+        body = json.dumps({"userIds": chunk}).encode()
+        req = urllib.request.Request(url, data=body, method="POST",
+                                     headers={"Content-Type": "application/json",
+                                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        if token:
+            req.add_header("Cookie", f".ROBLOSECURITY={token}")
+            req.add_header("Referer", "https://www.roblox.com")
+        try:
+            with urllib.request.urlopen(req, timeout=12) as r:
+                d = json.loads(r.read()).get("userPresences", [])
+        except Exception:
+            return
+        with lock:
+            for p in d:
+                uid = p.get("userId")
+                ptype = p.get("userPresenceType", p.get("presenceType", 0))
+                if ptype == 2:
+                    out[uid] = {"status": "in_game", "place_id": str(p.get("placeId") or ""),
+                                "job_id": p.get("gameId") or "", "last": p.get("lastLocation") or ""}
+                else:
+                    out[uid] = {"status": "online" if ptype == 1 else "offline",
+                                "place_id": "", "job_id": "", "last": p.get("lastLocation") or ""}
+
+    threads = [threading.Thread(target=do_chunk, args=(user_ids[i:i + 100],), daemon=True)
+               for i in range(0, len(user_ids), 100)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+    return out
+
+
+def _get_users_batch(user_ids, token=None):
+    ids = [int(x) for x in user_ids if x]
+    if not ids:
+        return {}
+    found = {}
+    lock = threading.Lock()
+
+    def do_chunk(chunk):
+        body = json.dumps({"userIds": chunk}).encode()
+        req = urllib.request.Request("https://users.roblox.com/v1/users", data=body,
+                                     method="POST",
+                                     headers={"Content-Type": "application/json",
+                                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        if token:
+            req.add_header("Cookie", f".ROBLOSECURITY={token}")
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    j = json.loads(r.read().decode())
+                with lock:
+                    for u in j.get("data", []):
+                        found[u.get("id")] = {"id": u.get("id"),
+                                              "name": u.get("name") or "?",
+                                              "display": u.get("displayName") or u.get("name") or "?"}
+                return
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    time.sleep(1.0 * (attempt + 1))
+                    continue
+                return
+            except Exception:
+                return
+
+    threads = [threading.Thread(target=do_chunk, args=(ids[i:i + 100],), daemon=True)
+               for i in range(0, len(ids), 100)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+
+    missing = [x for x in ids if x not in found]
+    if missing:
+        for i in range(0, len(missing), 50):
+            chunk = missing[i:i + 50]
+            body = json.dumps({"userIds": chunk}).encode()
+            req = urllib.request.Request("https://users.roblox.com/v1/users", data=body,
+                                         method="POST",
+                                         headers={"Content-Type": "application/json",
+                                                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            if token:
+                req.add_header("Cookie", f".ROBLOSECURITY={token}")
+            try:
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    j = json.loads(r.read().decode())
+                for u in j.get("data", []):
+                    found[u.get("id")] = {"id": u.get("id"),
+                                          "name": u.get("name") or "?",
+                                          "display": u.get("displayName") or u.get("name") or "?"}
+            except Exception:
+                pass
+            time.sleep(0.4)
+    return found
+
+
+def _get_users_individual(user_ids, token=None, timeout=8, concurrency=10):
+    """Résout les pseudos par GET /v1/users/{id} un par un, en parallèle.
+    Utilisé quand le batch POST users.roblox.com/v1/users est en 429
+    (rate-limit) : le GET individuel reste fiable."""
+    ids = [int(x) for x in user_ids if x]
+    if not ids:
+        return {}
+    found = {}
+    lock = threading.Lock()
+    slots = threading.Semaphore(concurrency)
+
+    def fetch(uid):
+        with slots:
+            url = f"https://users.roblox.com/v1/users/{uid}"
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            if token:
+                req.add_header("Cookie", f".ROBLOSECURITY={token}")
+            for attempt in range(3):
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as r:
+                        j = json.loads(r.read().decode())
+                    if j.get("id"):
+                        with lock:
+                            found[uid] = {"id": uid,
+                                          "name": j.get("name") or str(uid),
+                                          "display": j.get("displayName") or j.get("name") or str(uid)}
+                    return
+                except urllib.error.HTTPError as e:
+                    if e.code == 429:
+                        time.sleep(0.6 * (attempt + 1))
+                        continue
+                    if e.code in (404, 400):
+                        return
+                except Exception:
+                    return
+
+    threads = [threading.Thread(target=fetch, args=(u,), daemon=True) for u in ids]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=timeout + 5)
+    return found
+
+
+def get_friends(user_id, token, resolve_names=True):
+    friends = []
+    cursor = ""
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            d = json.loads(r.read()).get("userPresences", [])
-        if not d:
-            return None
-        p = d[0]
-        ptype = p.get("presenceType", 0)
-        if ptype == 2:
-            return {"status": "in_game", "place_id": str(p.get("placeId") or ""),
-                    "job_id": p.get("gameId") or "", "last": p.get("lastLocation") or ""}
-        return {"status": "online" if ptype == 1 else "offline",
-                "place_id": "", "job_id": "", "last": p.get("lastLocation") or ""}
+        url = f"https://friends.roblox.com/v1/users/{int(user_id)}/friends"
+        for _ in range(20):
+            u = f"{url}?limit=100&cursor={cursor}"
+            req = urllib.request.Request(u, headers={
+                "Cookie": f".ROBLOSECURITY={token}",
+                "Referer": "https://www.roblox.com",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                j = json.loads(r.read().decode())
+            for f in j.get("data", []):
+                if f.get("id"):
+                    friends.append(f["id"])
+            cursor = j.get("nextPageCursor") or ""
+            if not cursor:
+                break
     except Exception:
-        return None
+        pass
+    names = _get_users_batch(friends, token=token) if resolve_names else {}
+    if not resolve_names:
+        return [{"id": fid, "name": str(fid), "display": str(fid)} for fid in friends]
+    return [names.get(fid, {"id": fid, "name": str(fid), "display": str(fid)}) for fid in friends]
 
 
 def _http_json(url, token=None, method="GET"):
@@ -244,6 +410,7 @@ def _http_json(url, token=None, method="GET"):
 
 
 _last_verify_status = {"code": 0}
+_last_resolve_status = {"code": 0}
 
 
 def fetch_user_info(token):

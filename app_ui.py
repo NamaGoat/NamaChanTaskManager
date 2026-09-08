@@ -226,6 +226,7 @@ class App(ctk.CTk):
         self.reload_profiles_menu()
         self.after(2000, self.refresh_table_loop)
         self.after(3000, self._auto_check_update)
+        self.after(5000, self.friends_refresh_loop)
 
     def _sync_guardian(self):
         try:
@@ -285,6 +286,7 @@ class App(ctk.CTk):
         self.container.pack(fill="both", expand=True, padx=14, pady=(8, 10))
 
     def show_view(self, key):
+        self._current_view = key
         for v in self.views.values():
             v.pack_forget()
         self.views[key].pack(fill="both", expand=True)
@@ -298,6 +300,7 @@ class App(ctk.CTk):
                         text_color=("#000000" if k == key else MUT))
         if key == "comptes":
             self.refresh_accounts_list()
+            self.load_friends(auto=True)
 
     def _bg_image(self, w, h, c1, c2, horizontal=False):
         if not HAS_PIL:
@@ -481,6 +484,7 @@ class App(ctk.CTk):
         self.current_account = acc.get("name")
         self.update_header()
         self.refresh_accounts_list()
+        self.load_friends(auto=True)
 
     def open_details_dialog(self, acc):
         w = ctk.CTkToplevel(self)
@@ -788,7 +792,7 @@ class App(ctk.CTk):
         self.acc_list = ctk.CTkScrollableFrame(left, width=290, fg_color=CARD)
         self.acc_list.pack(fill="both", expand=True)
 
-        right = ctk.CTkFrame(body, fg_color="transparent")
+        right = ctk.CTkScrollableFrame(body, fg_color="transparent")
         right.pack(side="left", fill="both", expand=True)
         card = ctk.CTkFrame(right, fg_color=CARD, corner_radius=12)
         card.pack(fill="x")
@@ -802,23 +806,23 @@ class App(ctk.CTk):
 
         pv = ctk.CTkFrame(card, fg_color=CARD2, corner_radius=10)
         pv.pack(fill="x", padx=16, pady=(8, 6))
-        self.pv_icon = ctk.CTkLabel(pv, text="🎮", font=("Segoe UI", 44), width=120, height=120)
-        self.pv_icon.pack(side="left", padx=14, pady=12)
+        self.pv_icon = ctk.CTkLabel(pv, text="🎮", font=("Segoe UI", 26), width=64, height=64)
+        self.pv_icon.pack(side="left", padx=10, pady=8)
         pvinfo = ctk.CTkFrame(pv, fg_color="transparent")
-        pvinfo.pack(side="left", fill="both", expand=True, padx=(0, 12), pady=12)
-        self.pv_name = ctk.CTkLabel(pvinfo, text="Entre un Place ID ou colle un lien de jeu,\npuis clique « Charger l'aperçu ».",
+        pvinfo.pack(side="left", fill="both", expand=True, padx=(0, 12), pady=8)
+        self.pv_name = ctk.CTkLabel(pvinfo, text="Colle un lien / Place ID, puis « Rejoindre ».",
                                     font=FONT_B, anchor="w", justify="left", text_color=MUT)
         self.pv_name.pack(anchor="w")
         self.pv_mode = ctk.CTkLabel(pvinfo, text="", font=FONT_S, anchor="w", text_color=MUT)
         self.pv_mode.pack(anchor="w")
         self._preview_target = None
         btns = ctk.CTkFrame(card, fg_color="transparent")
-        btns.pack(fill="x", padx=16, pady=(4, 14))
-        self.btn_join = ctk.CTkButton(btns, text="▶  REJOINDRE AVEC LE COMPTE SÉLECTIONNÉ", font=("Segoe UI", 13, "bold"),
-                                      height=46, corner_radius=10, fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+        btns.pack(fill="x", padx=16, pady=(4, 10))
+        self.btn_join = ctk.CTkButton(btns, text="▶  REJOINDRE", font=("Segoe UI", 12, "bold"),
+                                      height=36, corner_radius=8, fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
                                       command=self.launch_selected_game)
         self.btn_join.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(btns, text="Home", width=90, height=46, corner_radius=10,
+        ctk.CTkButton(btns, text="Home", width=70, height=36, corner_radius=8,
                       fg_color=CARD2, hover_color="#26303f",
                       command=lambda: threading.Thread(target=self.api_launch_home, daemon=True).start()).pack(side="left", padx=(8, 0))
 
@@ -836,14 +840,34 @@ class App(ctk.CTk):
         self.btn_joinp.pack(side="right", padx=(0, 8))
         self.ent_player.bind("<Return>", lambda e: self.join_by_player())
 
-        rt = ctk.CTkFrame(right, fg_color="transparent")
-        rt.pack(fill="x", pady=(10, 4))
-        ctk.CTkLabel(rt, text="JEUX RÉCENTS", font=("Segoe UI", 11, "bold"), text_color=MUT, anchor="w").pack(side="left")
-        ctk.CTkButton(rt, text="↻", width=32, height=26, corner_radius=6,
+        tabs = ctk.CTkTabview(right, fg_color=CARD, corner_radius=12,
+                              segmented_button_selected_color=ACCENT,
+                              segmented_button_selected_hover_color=ACCENT_H)
+        tabs.pack(fill="x", pady=(10, 0))
+        tab_f = tabs.add("AMIS EN LIGNE")
+        tab_r = tabs.add("JEUX RÉCENTS")
+
+        fh = ctk.CTkFrame(tab_f, fg_color="transparent")
+        fh.pack(fill="x", padx=16, pady=(10, 0))
+        ctk.CTkLabel(fh, text="Amis du compte sélectionné", font=("Segoe UI", 11, "bold"), text_color=MUT).pack(side="left")
+        self.lbl_friends = ctk.CTkLabel(fh, text="", font=FONT_S, text_color=MUT)
+        self.lbl_friends.pack(side="right", padx=(0, 8))
+        self.btn_friends = ctk.CTkButton(fh, text="⟳  Charger", width=100, font=FONT_B, height=28,
+                                         fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+                                         command=self.load_friends)
+        self.btn_friends.pack(side="right", padx=(0, 8))
+        self.friends_box = ctk.CTkScrollableFrame(tab_f, fg_color=CARD2, height=230, corner_radius=8)
+        self.friends_box.pack(fill="x", padx=16, pady=10)
+        self._friend_btns = {}
+
+        rth = ctk.CTkFrame(tab_r, fg_color="transparent")
+        rth.pack(fill="x", padx=16, pady=(10, 0))
+        ctk.CTkLabel(rth, text="Derniers jeux lancés", font=("Segoe UI", 11, "bold"), text_color=MUT).pack(side="left")
+        ctk.CTkButton(rth, text="↻", width=32, height=26, corner_radius=6,
                       fg_color=CARD2, hover_color="#26303f", text_color=MUT,
                       command=self.reload_recents).pack(side="right")
-        self.rec_grid = ctk.CTkScrollableFrame(right, fg_color=CARD, height=170)
-        self.rec_grid.pack(fill="both", expand=True)
+        self.rec_grid = ctk.CTkScrollableFrame(tab_r, fg_color=CARD2, height=230, corner_radius=8)
+        self.rec_grid.pack(fill="x", padx=16, pady=10)
 
     def load_game_preview(self):
         raw = self.ent_target.get().strip()
@@ -858,7 +882,7 @@ class App(ctk.CTk):
         self.pv_mode.configure(text=mode_lbl)
 
         def work():
-            img = self._game_icon_for(pid, 110) if pid else None
+            img = self._game_icon_for(pid, 64) if pid else None
             name = self._fetch_place_name(pid) if pid else None
             if not name:
                 name = f"Place {pid}"
@@ -912,12 +936,31 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
+        acc = self._play_account()
+        acc_obj = accounts.find_account(acc or "")
+        token = accounts.get_token(acc_obj["id"]) if acc_obj else None
         u = accounts.resolve_player(username)
         if not u:
-            self.ui(lambda: self.set_status(f"Joueur '{username}' introuvable."))
-            self.ui(reenable)
-            return
-        p = accounts.get_player_presence(u["id"])
+            rs = accounts._last_resolve_status.get("code", 0)
+            if token and acc_obj:
+                for f in accounts.get_friends(acc_obj.get("user_id"), token):
+                    if (f["name"] or "").lower() == username.lower() or (f["display"] or "").lower() == username.lower():
+                        u = {"id": f["id"], "name": f["name"]}
+                        self.log(f"[Join joueur] '{username}' résolu via la liste d'amis du compte.")
+                        break
+            if rs == 429 and not u:
+                self.ui(lambda: self.set_status("API Roblox saturée (429) — réessaie dans ~30 s."))
+                self.ui(reenable)
+                return
+            if rs and not u:
+                self.ui(lambda: self.set_status(f"Recherche impossible (HTTP {rs}) — réessaie."))
+                self.ui(reenable)
+                return
+            if not u:
+                self.ui(lambda: self.set_status(f"Joueur '{username}' introuvable."))
+                self.ui(reenable)
+                return
+        p = accounts.get_player_presence(u["id"], token=token)
         if not p:
             self.ui(lambda: self.set_status("API présence indisponible — réessaie."))
             self.ui(reenable)
@@ -946,6 +989,158 @@ class App(ctk.CTk):
         else:
             self.ui(lambda: self.set_status(f"Échec du join : {msg}"))
         self.ui(reenable)
+
+    def load_friends(self, auto=False):
+        acc = self._play_account()
+        if not acc:
+            self.set_status("Aucun compte disponible — ajoute-en un d'abord.")
+            return
+        now = time.time()
+        if getattr(self, "_friends_last_load", 0) and now - self._friends_last_load < 3:
+            return
+        self._friends_last_load = now
+        try:
+            self.btn_friends.configure(state="disabled", text="Chargement...")
+        except Exception:
+            pass
+        if not auto:
+            self.lbl_friends.configure(text="")
+            self.set_status("Chargement des amis...")
+        threading.Thread(target=self._friends_thread, daemon=True).start()
+
+    def _friends_thread(self):
+        def reenable():
+            try:
+                self.btn_friends.configure(state="normal", text="⟳  Charger")
+            except Exception:
+                pass
+
+        try:
+            acc = self._play_account()
+            acc_obj = accounts.find_account(acc or "")
+            if not acc_obj:
+                self.ui(lambda: self.set_status("Compte introuvable."))
+                self.ui(reenable)
+                return
+            token = accounts.get_token(acc_obj["id"])
+            if not token:
+                self.ui(lambda: self.set_status(f"Token illisible pour {acc_obj['name']}."))
+                self.ui(reenable)
+                return
+            uid = acc_obj.get("user_id")
+            self.log(f"[Amis] Chargement de la liste d'amis de '{acc_obj['name']}' (user_id={uid})...")
+            fri_ids = accounts.get_friends(uid, token, resolve_names=False) if uid else []
+            friends = [f if isinstance(f, dict) else {"id": f} for f in fri_ids]
+            self.log(f"[Amis] {len(friends)} ami(s) récupéré(s).")
+            if not friends:
+                self.ui(lambda: self.lbl_friends.configure(text=""))
+                self.ui(lambda: self.set_status("Aucun ami trouvé (ou token invalide)."))
+                self.ui(reenable)
+                return
+            self.log("[Amis] Récupération de la présence (batch)...")
+            pres = accounts.get_users_presence([f["id"] for f in friends], token=token)
+            onl = [(f, pres.get(f["id"])) for f in friends if pres.get(f["id"], {}).get("status") != "offline"]
+            onl.sort(key=lambda x: 0 if x[1].get("status") == "in_game" else 1)
+            ing = sum(1 for _, p in onl if p.get("status") == "in_game")
+            if onl:
+                self.log(f"[Amis] Résolution des pseudos des {len(onl)} ami(s) en ligne (GET individuel)...")
+                names = accounts._get_users_individual([f["id"] for f, _ in onl], token=token)
+                onl = [(names.get(f["id"], f), p) for f, p in onl]
+            self.log(f"[Amis] {len(onl)} ami(s) en ligne (hors offline), dont {ing} en jeu.")
+            self.ui(lambda: self._render_friends(onl, acc_obj["name"]))
+        except Exception as e:
+            self.log(f"[Amis] Erreur de chargement : {e}")
+            self.ui(lambda: self.set_status(f"Chargement des amis impossible : {e}"))
+        self.ui(reenable)
+
+    def _avatars_map(self, user_ids):
+        ids = [int(x) for x in user_ids if x]
+        if not ids:
+            return {}
+        urls = {}
+        for i in range(0, len(ids), 100):
+            chunk = ids[i:i + 100]
+            q = ",".join(str(x) for x in chunk)
+            try:
+                d = _thumb_json(f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={q}&size=150x150&format=Png&isCircular=true")
+                for item in (d or {}).get("data", []):
+                    if item.get("imageUrl"):
+                        urls[item.get("targetId")] = item["imageUrl"]
+            except Exception:
+                pass
+        out = {}
+
+        def fetch(tid, u):
+            raw = _download_image(u)
+            if raw and HAS_PIL:
+                try:
+                    pil = Image.open(io.BytesIO(raw)).resize((32, 32))
+                    out[tid] = ctk.CTkImage(light_image=pil, dark_image=pil, size=(32, 32))
+                except Exception:
+                    pass
+
+        threads = [threading.Thread(target=fetch, args=(tid, u), daemon=True) for tid, u in urls.items()]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+        return out
+
+    def _render_friends(self, online, acc_name):
+        host = self.friends_box
+        if not host.winfo_exists():
+            return
+        for w in host.winfo_children():
+            w.destroy()
+        self._friend_btns = {}
+        if not online:
+            ctk.CTkLabel(host, text="Aucun ami en ligne en ce moment.",
+                         font=FONT_S, text_color=MUT, justify="center").pack(pady=20)
+            self.lbl_friends.configure(text="")
+            return
+        self.lbl_friends.configure(text=f"{len(online)} ami(s) en ligne")
+        self.lbl_friends.configure(text_color=FG)
+        rows = []
+        for f, p in online:
+            row = ctk.CTkFrame(host, fg_color=CARD2, corner_radius=6)
+            row.pack(fill="x", pady=2)
+            av = ctk.CTkLabel(row, text="", width=32)
+            av.pack(side="left", padx=(6, 0), pady=5)
+            disp = f.get("display") or f.get("name")
+            status = "🟢  " + (p["last"] or "En ligne") if p["status"] == "online" else "🎮  en jeu"
+            ctk.CTkLabel(row, text=disp + ("  (" + f["name"] + ")" if f["name"] != disp else ""),
+                         font=FONT_B, anchor="w", text_color=FG).pack(side="left", padx=6, pady=6)
+            ctk.CTkLabel(row, text=status, font=FONT_S, anchor="e", text_color=MUT).pack(side="left", fill="x", expand=True)
+            if p["status"] == "in_game":
+                btn = ctk.CTkButton(row, text="▶", width=40, height=26, corner_radius=5,
+                                    fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+                                    command=lambda ff=f, pp=p: threading.Thread(
+                                        target=self._join_friend, args=(ff, pp, acc_name), daemon=True).start())
+                btn.pack(side="right", padx=6, pady=5)
+            rows.append((f["id"], av))
+        img_map = self._avatars_map([rid for rid, _ in rows])
+
+        def apply():
+            for rid, av in rows:
+                img = img_map.get(rid)
+                if img:
+                    try:
+                        av.configure(image=img, text="")
+                    except Exception:
+                        pass
+        self.ui(apply)
+
+    def _join_friend(self, friend, presence, acc_name):
+        target = None
+        if presence.get("job_id"):
+            target = {"mode": "job", "place_id": presence["place_id"], "code": presence["job_id"]}
+            self.ui(lambda: self.set_status(f"Joint la partie de {friend['name']} (même serveur)..."))
+        else:
+            target = {"mode": "public", "place_id": presence["place_id"], "code": ""}
+            self.ui(lambda: self.set_status(f"{friend['name']} : serveur inconnu -> serveur public..."))
+        self.log(f"[Join ami] {friend['name']} -> {target}")
+        ok, msg = self.api_launch(acc_name, target)
+        self.ui(lambda: self.set_status(f"Joint la partie de {friend['name']} ({msg})." if ok else f"Échec du join : {msg}"))
 
     def reload_recents(self):
         if not hasattr(self, "rec_grid"):
@@ -1423,6 +1618,16 @@ class App(ctk.CTk):
         except Exception:
             pass
         self.after(2000, self.refresh_table_loop)
+
+    def friends_refresh_loop(self):
+        if self._closing:
+            return
+        try:
+            if getattr(self, "_current_view", None) == "comptes":
+                self.load_friends(auto=True)
+        except Exception:
+            pass
+        self.after(60000, self.friends_refresh_loop)
 
     def destroy(self):
         self._closing = True
