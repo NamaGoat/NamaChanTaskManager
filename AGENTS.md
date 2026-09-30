@@ -554,6 +554,27 @@ Le code existe déjà :
 - Release GitHub : TOUJOURS inclure l'exe dans la release
   (`gh release upload ... --clobber`). NE JAMAIS push sur GitHub sans demander
   d'abord : laisser l'utilisateur tester sur PC avant.
+- 30/09 - **BUG UPDATER (le plus vicieux de l'histoire)** : l'update
+  downloadable depuis l'app NE S'APPLIQUAIT JAMAIS. Cause reproduite :
+  le bootloader PyInstaller onefile tient l'exe ouvert SANS partage en
+  écriture -> `open(exe, "r+b")` = `PermissionError` (vérifié sur un vrai
+  exe en cours d'exécution). Le rename, lui, est toujours autorisé sur
+  une image en cours d'exécution. Le `except OSError: return False`
+  attrapait l'erreur EN SILENCE -> l'app affichait "Mise à jour installée"
+  alors que l'exe n'avait pas bougé (le "fix" du 11/09 n'a jamais été
+  testé en conditions réelles).
+  FIX : `apply_update()` = rename(`exe` -> `exe.old`, 20 tentatives / 5 s
+  pour un antivirus qui bloque) + écriture par-dessus avec `flush()` +
+  `fsync()`, **restauration de l'ancien exe** si l'écriture échoue,
+  suppression du `.new`, et le `.old` est nettoyé au prochain démarrage
+  (`cleanup_old_files` gère `*.old`). Retourne `(ok, message)` et
+  `_do_apply_update()` **affiche l'erreur** dans l'UI + Console.
+  VALIDÉ par un test automatisé : exe PyInstaller lancé + payload réel
+  de la release -> taille 23 115 257 -> 23 216 819 octets, `.new` supprimé,
+  exe remplacé se lance correctement.
+  ⚠️ L'exe du Bureau est en v1.1.0 (updater cassé) : il ne peut pas se
+  mettre à jour tout seul, le fix doit lui parvenir par **remplacement
+  manuel** du fichier exe, une fois.
 - Release v1.1.1 (30/09) : l'exe du **Bureau n'a PAS été écrasé** (il date
   du 11/09) — l'utilisateur update lui-même via l'updater pour tester.
   L'exe à jour est dans `dist\` + la release GitHub.

@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 
 GITHUB_REPO = "NamaGoat/NamaChanTaskManager"
@@ -90,17 +91,70 @@ def download_update(url, progress_fn=None):
 
 
 def apply_update(exe_path):
+    """Remplace l'exe en cours d'exécution.
+
+    Pourquoi rename + copie et NON une écriture en place : le bootloader
+    PyInstaller (onefile) tient l'exe ouvert SANS partage en écriture, donc
+    `open(current, "r+b")` lève `PermissionError` (constaté sur Win11 avec
+    un vrai NamaChanAccountManager.exe lancé -> l'update ne partait JAMAIS,
+    et l'ancien code catchait l'OSError en silence). Le rename, lui, est
+    toujours autorisé sur une image en cours d'exécution : ça libère le nom
+    et la copie se fait alors sur un fichier tout neuf, sans verrou.
+    Le `.old` ne peut pas être supprimé tout de suite (encore chargé en
+    mémoire) -> il est nettoyé au prochain démarrage par cleanup_old_files().
+
+    Retourne (ok, message_erreur). Appelle os._exit(0) si tout s'est bien
+    passé (le nouveau fichier est en place, à l'utilisateur de relancer).
+    """
     current = os.path.abspath(sys.argv[0])
-    with open(exe_path, "rb") as f:
-        data = f.read()
     try:
-        with open(current, "r+b") as f:
+        with open(exe_path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        return False, f"lecture du fichier téléchargé impossible : {e}"
+    if not data:
+        return False, "le fichier téléchargé est vide"
+
+    backup = current + ".old"
+    renamed = False
+    last_err = None
+    for _ in range(20):                      # antivirus qui bloque ~5 s max
+        try:
+            os.rename(current, backup)
+            renamed = True
+            break
+        except OSError as e:
+            last_err = e
+            time.sleep(0.25)
+    if not renamed:
+        return False, f"impossible de libérer le fichier exe ({last_err})"
+
+    try:
+        with open(backup, "rb") as f:         # relit l'ancien exe
+            data_old = f.read()
+        with open(current, "wb") as f:        # écrit le nouveau par-dessus
             f.write(data)
-            f.truncate()
-    except OSError:
-        return False
+            f.flush()
+            os.fsync(f.fileno())
+    except OSError as e:
+        # on restaure l'ancien exe, l'utilisateur n'a rien perdu
+        try:
+            with open(current, "wb") as f:
+                f.write(data_old)
+        except OSError:
+            pass
+        try:
+            os.remove(backup)
+        except OSError:
+            pass
+        return False, f"écriture de la mise à jour impossible : {e}"
+
     try:
-        os.remove(exe_path)
+        os.remove(exe_path)                   # le .new
+    except OSError:
+        pass
+    try:
+        os.remove(backup)                     # .old (souvent encore verrouillé)
     except OSError:
         pass
     os._exit(0)

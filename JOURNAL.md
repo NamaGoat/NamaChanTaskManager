@@ -95,6 +95,69 @@ Re-testé ensuite par l'utilisateur en conditions réelles ✓
 
 ---
 
+## L'update ne s'appliquait jamais (30/09, v1.1.1)
+
+### Symptôme
+L'utilisateur télécharge bien la release depuis l'app (« Mise à jour
+installée ! Relance l'app »), mais **l'exe reste en v1.1.0**. Aucun
+`.new` sur le disque non plus (nettoyé au redémarrage suivant par
+`cleanup_old_files`).
+
+### Cause racine (reproduite)
+Le « fix » du 11/09 (écriture en place sans passer le fichier à 0 octet)
+**ne pouvait pas marcher** : le bootloader PyInstaller *onefile* tient
+l'exe ouvert **sans partage en écriture**.
+
+```
+PermissionError: [Errno 13] Permission denied: '...\App.exe'
+```
+
+Testé sur un vrai `NamaChanAccountManager.exe` **lancé** (Win11) :
+- `open(exe, "r+b")` (écriture en place) → `PermissionError`
+- `os.rename(exe, exe + ".old")` → **OK** (Windows autorise toujours le
+  rename d'une image en cours d'exécution)
+- `shutil.copy2(.new, exe)` après le rename → **OK**, et l'exe remplacé
+  se lance normalement.
+
+Pire : l'ancien `apply_update` faisait `except OSError: return False`
+**sans rien logger ni afficher** → l'app annonçait une update réussie
+alors que rien n'avait bougé. C'est pour ça que le bug est resté
+invisible (le « fix » du 11/09 n'avait jamais été testé en conditions
+réelles).
+
+### Fix
+`updater.apply_update()` : **rename + copie**, avec restauration.
+1. lit le `.new` ;
+2. `os.rename(current, current + ".old")` avec **20 tentatives / 5 s**
+   (filet si un antivirus tient le fichier) ;
+3. réécrit l'ancien exe dans un tampon, puis écrit le nouveau par-dessus
+   `current` + `flush()` + `fsync()` ;
+4. si l'écriture échoue → **restauration** de l'ancien exe, l'utilisateur
+   ne perd rien ;
+5. supprime le `.new`, tente de supprimer le `.old` (échoue la plupart du
+   temps car encore chargé en mémoire → **nettoyé au prochain démarrage**,
+   `cleanup_old_files` gère déjà le pattern `*.old`) ;
+6. `os._exit(0)`.
+
+Retourne maintenant `(ok, message)` et l'appelant (`_do_apply_update`)
+**affiche l'erreur** dans l'UI + la Console au lieu de faire croire à un
+succès. Bouton repassé sur « Réessayer ».
+
+### Validation (test automatisé `test_apply_fix.py`, à part)
+Exe PyInstaller **vraiment lancé** + payload réel de la release :
+- `apply_update()` appelé depuis un process fils → `os._exit(0)` sans erreur
+- taille : 23 115 257 → 23 216 819 octets (identique à la release)
+- `.new` supprimé, `.old` présent (nettoyé au prochain démarrage)
+- **l'exe mis à jour se lance correctement**
+
+### Conséquence pour la livraison
+L'exe du Bureau est en **v1.1.0, dont l'updater est cassé** : il ne peut
+pas se mettre à jour lui-même. Le fix ne peut donc pas lui parvenir par
+l'auto-updateur → **il faut un remplacement manuel du fichier exe une
+fois**, et ensuite tous les updates suivantes marcheront.
+
+---
+
 ## Les fantômes en arrière-plan (comportement Roblox, pas un bug)
 
 Après fermeture, Roblox laisse parfois des processus `RobloxPlayerBeta.exe`

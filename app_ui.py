@@ -1850,7 +1850,23 @@ class App(ctk.CTk):
         self.lbl_upd_info.configure(text="Mise à jour installée ! Relance l'app.", text_color=GREEN)
         self.log(f"[Update] Fichier téléchargé, application de la mise à jour…")
         self.log(f"[Update] Mise à jour appliquée. Fermeture — relance l'app pour finir.")
-        self.after(800, lambda: updater.apply_update(path))
+        self.after(800, lambda: self._do_apply_update(path))
+
+    def _do_apply_update(self, path):
+        """applique réellement la mise à jour. Ne doit JAMAIS échouer en
+        silence (l'ancien code attrapait l'OSError et faisait croire que
+        l'update était passée alors que l'exe restait en v1.1.0)."""
+        try:
+            ok, err = updater.apply_update(path)
+        except Exception as e:
+            ok, err = False, f"{type(e).__name__}: {e}"
+        if ok:                       # pas atteint : apply_update fait os._exit(0)
+            return
+        self.btn_download.configure(state="normal", text="Réessayer")
+        self.lbl_upd_info.configure(text=f"Échec de la mise à jour : {err}", text_color=RED)
+        self.set_status("Échec de la mise à jour.")
+        self.log(f"[Update] ÉCHEC de la mise à jour : {err}")
+        self.log("[Update] L'exe n'a PAS été modifié, tu peux réessayer.")
 
     def _on_download_error(self, err):
         self.btn_download.configure(state="normal", text="Mettre à jour")
