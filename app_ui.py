@@ -230,6 +230,8 @@ class App(ctk.CTk):
         self.apply_feature_settings()
 
         self.show_view("comptes")
+        self.log(f"[Tray] Zone de notification : {'OK' if HAS_TRAY else 'INDISPONIBLE (pystray manquant)'}"
+                 f" — fermeture en arrière-plan {'active' if s.get('minimize_to_tray') else 'désactivée'}.")
         self.after(100, self._drain)
         updater.cleanup_old_files()
         try:
