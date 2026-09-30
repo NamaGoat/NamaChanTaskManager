@@ -136,6 +136,12 @@ def apply_update(exe_path):
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
+        # vérification : on ne considerera l'update PAS faite tant que la
+        # taille ne correspond pas exactement au payload (écriture tronquée,
+        # disque plein, antivirus qui tronque...). Si ça diffère, on restaure.
+        written = os.path.getsize(current)
+        if written != len(data):
+            raise OSError(f"fichier écrit tronqué ({written} octets au lieu de {len(data)})")
     except OSError as e:
         # on restaure l'ancien exe, l'utilisateur n'a rien perdu
         try:

@@ -34,7 +34,7 @@ import core
 import features
 import updater
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 BG = "#0d1118"
 CARD = "#151b26"
