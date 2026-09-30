@@ -1086,7 +1086,15 @@ autres. Process vivant = guardian vivant, et les threads `after` de Tk
 
 ### Validation
 - `ast.parse` OK, app relancée, aucun crash.
+- **Releasé en v1.1.1** (30/09) : commit + tag + release GitHub avec l'exe (22,1 Mo).
+  L'exe du **Bureau n'a volontairement PAS été écrasé** (il date du 11/09) : c'est
+  l'utilisateur qui update lui-même pour tester la v1.1.1 — l'exe à jour est
+  uniquement dans `dist\NamaChanAccountManager.exe` + la release GitHub.
+- Règle de release appliquée : la page publique GitHub ne contient QUE le
+  résumé de ce qu'apporte l'update (pour les users). Les checklists de test,
+  les « rappel » internes et le contexte de session (exe du Bureau, tests à
+  faire, PC de l'ami...) restent dans AGENTS.md / JOURNAL.md uniquement.
 - Reste à tester par l'utilisateur : activer le switch → X → l'app
   disparaît et l'icône est dans la zone de notification → double-clic =
-  elle revient → « Quitter » = vraie fermeture.
-- Toujours pas de push GitHub ni de rebuild exe.
+  elle revient → « Quitter » = vraie fermeture. Vérifier aussi la ligne
+  `[Tray] Zone de notification : OK` dans la Console au démarrage.

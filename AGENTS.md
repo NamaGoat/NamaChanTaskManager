@@ -554,6 +554,14 @@ Le code existe déjà :
 - Release GitHub : TOUJOURS inclure l'exe dans la release
   (`gh release upload ... --clobber`). NE JAMAIS push sur GitHub sans demander
   d'abord : laisser l'utilisateur tester sur PC avant.
+- Release v1.1.1 (30/09) : l'exe du **Bureau n'a PAS été écrasé** (il date
+  du 11/09) — l'utilisateur update lui-même via l'updater pour tester.
+  L'exe à jour est dans `dist\` + la release GitHub.
+- CONTENU DE LA PAGE GITHUB : uniquement le **résumé de ce qu'apporte
+  l'update** (destiné aux users). Ne PAS y mettre les checklists de test,
+  les rappels internes (« l'exe du Bureau n'a pas été écrasé »), ni le
+  contexte de session (PC de l'ami, comptes perso, etc.) : tout ça reste
+  dans AGENTS.md / JOURNAL.md.
 - NE JAMAIS éditer les fichiers sources via Get-Content/Set-Content PowerShell
   (double-encodage UTF-8 -> mojibake) : utiliser uniquement les outils
   d'édition dédiés.
