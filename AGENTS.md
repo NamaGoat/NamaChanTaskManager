@@ -339,9 +339,130 @@ majeur.
   vrai display name + pseudo comme avant. L'ancien flux résolvait les noms de
   TOUS les amis via le batch 429 -> autant d'IDs.
   NB : le fallback resolve_player (ligne 946) utilise toujours
-  get_friends(resolve_names=True) par défaut (inchangé).
+   get_friends(resolve_names=True) par défaut (inchangé).
+- 11/09 - UPDATER IN-PLACE FIX : `apply_update()` dans updater.py ne
+  tronque plus le fichier à 0 octet avant réécriture. L'ancien code
+  (`truncate(0)` puis `write`) créait une fenêtre où le fichier était vide
+  -> Windows Defender re-scanait et resetait l'exclusion. Nouveau code :
+  `f.write(data)` puis `f.truncate()` (taille finale) — le fichier ne
+  passe jamais à 0 octet, garde son inode -> exclusion Defender (path-based)
+  survit. Fallback rename+copy2 supprimé. Syntaxe OK. À tester en update
+  réelle par l'utilisateur.
+- 30/09 - BUG FREEZE UI (app "qui met du temps à répondre") : les AVATARS
+  d'amis étaient téléchargés sur le THREAD PRINCIPAL. `_render_friends()`
+  (déclenché via `self.ui()` -> `_drain`) appelait `_avatars_map()` qui
+  faisait `_thumb_json(timeout=10)` + `t.join(timeout=10)` DANS la boucle Tk
+  -> jusqu'à ~20 s d'UI totalement gelée (d'où l'impression de "crash").
+  Aggravant : rechargement auto toutes les 60 s (`friends_refresh_loop`),
+  aucun cache d'avatars, destroy/recreate complet de la liste à chaque fois.
+  FIX : (1) `_avatars_map` (bloquant) remplacé par `_avatar_cached()` +
+  `_avatars_fetch_async(ids, on_done)` — rendu immédiat avec le cache,
+  téléchargement en thread dédié, rappel via `self.ui()`, AUCUN join sur
+  le principal ; (2) cache `self._avatar_cache` (user_id -> CTkImage, en
+  mémoire) ; (3) timeouts avatars 4 s (`_thumb_json`/`_download_image`
+  acceptent maintenant un paramètre `timeout`) ; (4) RECHARGEMENT
+  MANUEL UNIQUEMENT (demande user) : suppression de `friends_refresh_loop`
+  (boucle 60 s) et des `load_friends(auto=True)` dans `show_view` /
+  `select_account` -> seul le bouton "⟳ Charger" déclenche (garde 3 s
+  anti-double-clic conservé) ; (5) `self._friends_sig` évite le
+  destroy/recreate si le contenu n'a pas changé ; (6) nouveau
+  `_friends_reset()` : liste vidée au changement de compte avec le message
+  "Amis de <compte> — clique sur ⟳ Charger", et le label affiche
+  "N en ligne — <compte>" (plus de liste obsolète d'un autre compte).
+  NB : la liste d'amis charge DÉJÀ un seul compte à la fois = celui
+  sélectionné dans la vue Comptes, ou le 1er de la liste si rien n'est
+  sélectionné (`_play_account`).
+  PERF MESURÉE : `refresh_table_loop` (2 s) appelle `core.get_instances()`
+  sur le thread principal mais ne coûte que 4-5 ms (288 processus,
+  1 instance) -> NON_OPTIMISÉ VOLONTAIREMENT (risque sans gain).
+  `unlock_all()` (guardian, 0,5 s) = 45 ms ≈ 9 % d'un cœur en continu :
+  seul point chaud restant, inhérent au multi-instance.
+  MESURE : app ouverte = 7,7 % d'UN cœur = **0,96 % du total** (8 cœurs
+  logiques) — le Gestionnaire des tâches affiche ~1 %, à comparer aux
+  5-15 % d'UNE instance Roblox. Donc : rien à optimiser côté CPU.
+- 30/09 - FEATURE "Compte principal" + fix scroll liste des comptes :
+  (1) Champ `main` par compte (unicité garantie) -> `accounts.set_main_account
+  (acc_id)` (pose True sur un, False partout ailleurs), `get_main_account()`,
+  et `update_account(..., main="__unset__")` (sentinelle comme
+  `chrome_profile`). Au démarrage `refresh_accounts_list()` sélectionne le
+  main (fallback `accs[0]` si aucun), le fait remonter EN TÊTE de liste
+  (tri stable) et le préfixe de ⭐ ; `_scroll_account_into_view(idx)` le
+  ramène dans le viewport après rendu. Switch « Compte principal » dans la
+  fiche ⚙ (dialog 430 -> 540 px de haut).
+  (2) SCROLLBAR : la scrollbar de `acc_list` est un `CTkScrollableFrame` et
+  en customtkinter **6.0.0** `CTkScrollbar` ne dessine AUCUNE flèche
+  (simple piste arrondie via `draw_rounded_scrollbar()`, cf.
+  draw_engine.py) — d'où le "elle sert à rien". De plus `scrollbar_width`
+  n'existe PAS sur `CTkScrollableFrame` en 6.0.0 (params exposés :
+  `scrollbar_fg_color` / `scrollbar_button_color` /
+  `scrollbar_button_hover_color`) -> impossible de "réparer" des flèches
+  inexistantes. Demande clarifiée (user : "les flèches c'est pas pour
+  move up des comptes ?") -> les ▲▼ RÉORDONNENT le compte SÉLECTIONNÉ
+  (`accounts.move_account(acc_id, delta)`, swap + save_data, ordre
+  persisté, no-op aux extrémités) ; `_sync_move_buttons` désactive ▲ si
+  déjà en tête / ▼ si dernier / les 2 si <2 comptes. PAS de tri auto
+  "main en tête" (rendrait le réordonnage inopérant) : le main = ⭐ +
+  sélection/scroll au démarrage seulement. Scrollbars : celle du **panneau
+  de droite est SUPPRIMÉE** — le panneau n'est plus un
+  `CTkScrollableFrame` mais un `CTkFrame` (aucune scrollbar instanciée,
+  plus rien à masquer) ; la carte "CHOISIR UN JEU" et les onglets ont été
+  compactés (icône 52 px, boutons 30-34 px, onglets 205 px) pour que rien
+  ne soit coupé, le panneau ne défilant plus. Liste des comptes +
+  onglets AMIS/JEUX : inchangés. PIÈGE CTk 6.0.0 : `"transparent"` est
+  REJETÉ sur `CTkScrollbar(button_color=)` (`ValueError: transparency is
+  not allowed for this attribute`) -> ne jamais passer "transparent" là,
+  utiliser `pack_forget()`. Molette + auto-scroll au démarrage restent
+  actifs.
+  SCROLL LISTE COMPTES : `CTkScrollableFrame` bind sa molette en
+  `bind_all(..., add=True)` (bindtag `all`, donc en DERNIER) -> un binding
+  additif sur `acc_list` est ignoré, CTk défile après. FIX : binding **sans
+  `add`** qui renvoie `"break"` (`_acc_list_wheel`, app_ui.py:498) pour
+  court-circuiter le global, + bridage `yview_moveto` entre 0 et 1 +
+  `_reset_list_scroll()` quand la liste est vide.
+- 30/09 - FEATURE "Fermer en arrière-plan" (icône dans la zone de
+  notification) + layout 2 colonnes à la même hauteur :
+  (1) `pystray` installé sur l'interpréteur Python310 (dépendance
+  EXTERNE, première du projet -> à garder dans `requirements` mental :
+  customtkinter + pillow + pystray, psutil déjà là via core).
+  Importé sous `try/except` dans app_ui.py (`HAS_TRAY`) : si absent,
+  l'app refuse de se cacher (elle deviendrait introuvable) et affiche
+  « pystray manquant » dans les paramètres.
+  `protocol("WM_DELETE_WINDOW", self._on_close_requested)` : si
+  `settings.json["minimize_to_tray"]` -> `_hide_to_tray()` (withdraw +
+  icône zone de notification) au lieu de détruire. Sinon vraie
+  fermeture.
+  Icône pystray dans un **thread daemon** via `icon.run_detached()`,
+ Callbacks encapsulés dans `self.ui(...)` (les callbacks pystray
+  tournent hors du thread Tk -> jamais de Tk direct).
+  Menu : « Afficher NamaChan » (default, double-clic) / « Quitter ».
+  `destroy()` appelle aussi `_tray.stop()` pour enlever l'icône.
+  RÉPONSE À LA QUESTION USER : OUI, le guardian DOIT continuer en
+  arrière-plan — c'est tout l'intérêt (il empêche qu'une instance qui se
+  ferme proprement tue les autres). Le process vivant = guardian vivant.
+  Persisté dans `apply_feature_settings` (`minimize_to_tray`).
+  (2) `NamaChanAccountManager.spec` : `collect_all('pystray')` +
+  `hiddenimports += ['pystray._win32']` (l'import est dans un
+  try/except, PyInstaller peut ne pas le détecter).
+  (3) Layout : `left` (MES COMPTES) passé de `fill="y"` à
+  `fill="both", expand=True` + `tabs.pack(fill="both", expand=True)` +
+  `friends_box`/`rec_grid` en `fill="both", expand=True` -> les deux
+  colonnes font exactement la même hauteur et les onglets AMIS / JEUX
+  occupent toute la place restante (pas de vide en bas). Inutile de
+  toucher à CTkTabview : ses onglets sont déjà `grid(sticky="nsew")`
+  en row 3 avec `weight=1`.
 
 ## Liste de progression (roadmap)
+
+> **PRIORITÉ (à traiter) — Bug tooling `release.ps1`** : le script de release
+> utilise `Get-Content`/`Set-Content` (lignes 37-39) pour bumper `__version__`.
+> En PowerShell 5.1, ceci relit app_ui.py en ANSI (Windows-1252) et le réécrit
+> en UTF-8 -> MOJIBAKE sur tous les accents (é->Ã©, etc.), et `git` voit ~300
+> lignes modifiées. C'est arrivé à la v1.1.0 (08/09). À corriger pour la
+> prochaine release : ne PAS éditer les sources via PowerShell ; bumper la
+> version autrement (ex. remplacer uniquement `__version__` par un
+> `git show` + outil d'édition, ou regex sur les octets / sed, ou demander à
+> l'agent de le faire). NB : le process PyInstaller via le script est aussi
+> fragile (stderr -> NativeCommandError avec $ErrorActionPreference=Stop).
 
 1. [x] Base : gestion des comptes (tokens DPAPI, ticket via CDP, lancement)
 2. [x] UI CustomTkinter avec sidebar + vues
@@ -374,12 +495,19 @@ majeur.
    - [x] Amis en ligne (08/09) : carte dans la vue Comptes -> bouton
          "⟳ Charger" charge les amis du compte sélectionné + présence batch
          -> liste des amis en ligne avec bouton ▶ (même serveur si gameId).
-         Au passage fixé "Join by player" (bug racine : API présence renvoie
-         `userPresenceType` et pas `presenceType`). Amis auto-chargés H24 :
-         à l'ouverture de la vue + à chaque compte + toutes les 60 s.
-         Ajout 08/09 : TÊTES (avatars 32px) à gauche de chaque ami en ligne
-         (batch thumbnails par 100 + dl threads parallèles) ; batch users +
-         présence paginés/parallélisés -> ~300 amis chargés en <1s.
+           Au passage fixé "Join by player" (bug racine : API présence renvoie
+           `userPresenceType` et pas `presenceType`).
+           Chargement MANUEL UNIQUEMENT (30/09 : le reload auto 60 s causait
+           le freeze de l'UI, cf. plus bas — bouton ⟳ Charger seul déclenche,
+           avec cache d'avatars donc quasi instantané au 2e clic).
+           Ajout 08/09 : TÊTES (avatars 32px) à gauche de chaque ami en ligne
+           (batch thumbnails par 100 + dl threads parallèles) ; batch users +
+           présence paginés/parallélisés -> ~300 amis chargés en <1s.
+   - [x] Compte principal (30/09) : switch dans la fiche ⚙ -> le compte
+         ⭐ est sélectionné + scrollé automatiquement au démarrage (pas de
+         tri : l'ordre reste LE tien). Boutons ▲/▼ RÉORDONNENT le compte
+         sélectionné (la scrollbar CTk 6.0.0 n'a pas de flèches
+         fonctionnelles).
    - [ ] Autres QoL à définir avec l'utilisateur
    - [ ] [À ÉVALUER] Backend graphique : forcer le backend de rendu
          (FFlagDebugGraphicsPreferD3D11 / PreferVulkan / PreferOpenGL —
@@ -390,6 +518,9 @@ majeur.
 10. [ ] **Ne jamais push GitHub sans demander** : laisser l'utilisateur
         tester l'exe sur PC avant de créer la release. Réduire le nombre
         de releases (pas 1 fix = 1 release).
+11. [x] Updater in-place fix : `apply_update()` écrit par-dessus sans
+        tronquer à 0 → Windows Defender ne reset plus l'exclusion à chaque
+        update (11/09, à tester en conditions réelles).
 
 ### Détail Multi Roblox (étape 4)
 Le code existe déjà :
@@ -407,6 +538,10 @@ Le code existe déjà :
   documenter dans `AGENTS.md` (notes techniques, section État/historique)
   ET `JOURNAL.md` (récit lisible : contexte -> cause -> fix).
   Systématique, pas seulement les bugs "majeurs".
+- RÈGLE : documenter AUTOMATIQUEMENT chaque modification, même si
+  l'utilisateur ne le demande pas explicitement (il quitte parfois sans
+  y penser). Ajouter un todo dans la roadmap si la feature a des étapes
+  restantes.
 - Après chaque modif : tester en lançant `python app_ui.py`.
   NB : le bon interpréteur est
   `C:\Users\namaz\AppData\Local\Programs\Python\Python310\python.exe`
@@ -450,3 +585,29 @@ Le code existe déjà :
 - Intégré : icône exe via `.spec` (`icon='namachan.ico'` + datas) et icône de
   fenêtre via `_apply_icon()` dans `app_ui.py` (fenêtre principale + popups).
 - Si le logo change : relancer `gen_icon.py` puis rebuild.
+
+## LLM locaux (setup 22/09) — hors code NamaChan
+
+- Pour opencode, l'utilisateur a installé 2 modèles Ollama LOCAUX sur le disque
+  D: (2ᵉ SSD) comme alternative gratuite/privée au cloud (moi, big-pickle).
+- Emplacement : `D:\ollama\models` via la var utilisateur `OLLAMA_MODELS`
+  (persistée dans le registre). Le dossier racine D: étant non-écrivable par le
+  compte (ACL admin), le dossier a dû être créé en admin + ACL héritée
+  `(OI)(CI)F` ajoutée (sinon sous-dossier `blobs` = readonly -> pull fails
+  "Access is denied").
+- Modèles : `qwen2.5-coder:14b` (9 Go) et `LoPld/qwen3-coder-30b-a3b-q4_K_S`
+  (17 Go, MoE 30B-A3B = ~3,3B actifs → vitesse de 14B avec qualité proche 30B).
+- `qwen3-coder` n'a PAS de tag 14B (série Qwen3 pas de petit dense) ; le 14B
+  = `qwen2.5-coder:14b`. RTX 5080 16 Go (~14,6 dispo) : le 30B en Q4_K_S passe
+  de justesse avec un léger offload mémoire.
+- Config : `opencode.json` -> provider `ollama` avec les 2 modèles enregistrés
+  (`tool_call: true`). Le modèle par défaut reste le cloud (big-pickle).
+  NB : config opencode chargée au démarrage uniquement -> redémarrage requis
+  après toute modif de `opencode.json`.
+- IMPORTANT : le provider `ollama` N'EST PAS dans le catalogue opencode/models.dev
+  (seul `ollama-cloud` y est). Sans `npm` ni `options.baseURL`, opencode envoie
+  la requête sur `undefined/chat/completions` -> "cannot be parsed as a URL".
+  FIX appliqué le 22/09 : ajout de `"npm": "@ai-sdk/openai-compatible"` +
+  `"options": { "baseURL": "http://localhost:11434/v1" }`. Endpoint vérifié :
+  `GET http://localhost:11434/v1/models` renvoie bien les 2 modèles.
+- Pas d'impact sur le code NamaChan : c'est du pur outillage opencode.

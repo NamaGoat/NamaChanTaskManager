@@ -144,7 +144,7 @@ def remove_account(acc_id):
     return len(data["accounts"]) < before
 
 
-def update_account(acc_id, name=None, notes=None, chrome_profile="__unset__"):
+def update_account(acc_id, name=None, notes=None, chrome_profile="__unset__", main="__unset__"):
     data = load_data()
     for a in data["accounts"]:
         if a.get("id") == acc_id:
@@ -154,9 +154,45 @@ def update_account(acc_id, name=None, notes=None, chrome_profile="__unset__"):
                 a["notes"] = notes
             if chrome_profile != "__unset__":
                 a["chrome_profile"] = chrome_profile
+            if main != "__unset__":
+                a["main"] = bool(main)
             save_data(data)
             return True
     return False
+
+
+def set_main_account(acc_id):
+    """Définit le compte principal. Un seul par fichier : main=False est
+    retiré de tous les autres. acc_id=None -> plus aucun compte principal."""
+    data = load_data()
+    for a in data["accounts"]:
+        a["main"] = (a.get("id") == acc_id)
+    save_data(data)
+    return True
+
+
+def get_main_account():
+    for a in get_accounts():
+        if a.get("main"):
+            return a
+    return None
+
+
+def move_account(acc_id, delta):
+    """Déplace le compte d'une position dans la liste (delta=-1 monte,
+    +1 descend). L'ordre est persisté dans accounts.json et conservé au
+    redémarrage. Retourne la liste (modifiée ou non)."""
+    data = load_data()
+    accs = data["accounts"]
+    for i, a in enumerate(accs):
+        if a.get("id") == acc_id:
+            j = i + delta
+            if j < 0 or j >= len(accs):
+                return accs
+            accs[i], accs[j] = accs[j], accs[i]
+            save_data(data)
+            break
+    return accs
 
 
 def get_token(acc_id):

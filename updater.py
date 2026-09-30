@@ -4,7 +4,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 import urllib.request
 
 GITHUB_REPO = "NamaGoat/NamaChanTaskManager"
@@ -92,22 +91,13 @@ def download_update(url, progress_fn=None):
 
 def apply_update(exe_path):
     current = os.path.abspath(sys.argv[0])
-    backup = current + ".old"
-    for _ in range(50):
-        try:
-            os.rename(current, backup)
-            break
-        except OSError:
-            time.sleep(0.2)
-    else:
-        return False
+    with open(exe_path, "rb") as f:
+        data = f.read()
     try:
-        shutil.copy2(exe_path, current)
+        with open(current, "r+b") as f:
+            f.write(data)
+            f.truncate()
     except OSError:
-        try:
-            os.rename(backup, current)
-        except OSError:
-            pass
         return False
     try:
         os.remove(exe_path)

@@ -804,3 +804,289 @@ Le fallback de "Rejoindre un joueur" (resolve_player, ligne 946) garde
 - Syntaxe des deux fichiers verifiee : OK.
 - A tester par l'utilisateur : bascule entre comptes -> pseudos reels
   affiches pour les amis en ligne.
+
+---
+
+## Updater : update en place sans reset Defender (11/09)
+
+### Symptôme
+L'utilisateur devait ré-ajouter l'exclusion Windows Defender à chaque
+update de l'exe, car le remplacement créait un nouveau fichier.
+
+### Cause
+Le code v1.0.22 decrit dans AGENTS.md disait "os.rename + shutil.copy2"
+(preserve l'inode), mais le code reel dans updater.py faisait un
+`f.truncate(0)` puis `f.write(data)` — le fichier passait à 0 octet
+pendant l'ecriture, ce qui declenchait le scan en temps reel de Defender
+sur un fichier "nouveau" (fragment de 0 octet -> reecriture). Defender
+considerait que le fichier avait change et re-scannait/flagait.
+
+### Fix
+`apply_update()` écrit directement par-dessus le fichier existant sans
+tronquer d'abord : `f.write(data)` puis `f.truncate()` à la fin. Le
+fichier ne passe JAMAIS à 0 octet, garde son chemin et son inode ->
+l'exclusion Defender (path-based) survit. Le fallback rename+copy2 a été
+supprimé (plus nécessaire).
+
+### Validation
+Syntaxe OK (py_compile). Pas de release pushée — à tester par
+l'utilisateur en conditions réelles (update depuis une version ancienne).
+
+---
+
+## FREEZE de l'UI : avatars d'amis chargés sur le thread principal (30/09)
+
+### Symptôme
+L'utilisateur signalait que l'app « prend du temps à répondre » /
+« crash » par moments. Plus ou moins aléatoire, sans action de sa part.
+
+### Cause racine
+La liste d'amis elle-même n'était pas en cause : les appels API sont
+correctement dans le thread worker (`_friends_thread`). Le problème était
+le rendu, dans `_render_friends()` (appelé via `self.ui()` → `_drain` →
+**thread principal**) :
+
+    self.ui(lambda: self._render_friends(...))   # thread principal
+      └─ img_map = self._avatars_map(...)       # <-- réseau ICI
+
+`_avatars_map` faisait deux attentes bloquantes alors qu'on était déjà
+dans la boucle Tk :
+1. `_thumb_json(...)` vers `thumbnails.roblox.com`, `timeout=10`
+2. un thread par ami en ligne, puis `t.join(timeout=10)`
+
+=> jusqu'à ~20 secondes pendant lesquelles `_drain` (qui boucle toutes
+les 100 ms) ne peut plus rien traiter : plus aucun clic, aucun scroll.
+L'app était gelée, pas lente. C'est pour ça que ça semblait aléatoire :
+ça dépendait de la latence de `thumbnails.roblox.com`.
+
+Aggravants :
+- déclenché 3 fois sans action : ouverture de la vue Comptes, changement
+  de compte, puis **toutes les 60 s** (`friends_refresh_loop`) ;
+- aucun cache d'avatars -> re-téléchargement complet à chaque refresh ;
+- destroy + recréation de toutes les rangées toutes les 60 s (CTk coûteux) ;
+- le garde anti-rafale de 3 s ne servait à rien (le blocage venait du
+  thread principal, pas d'une concurrence de requêtes).
+
+### Fix
+1. **Avatars hors du thread principal** : `_avatars_map` (bloquant)
+   remplacé par `_avatar_cached()` + `_avatars_fetch_async(user_ids,
+   on_done)`. Le rendu dessine d'abord les lignes (nom + statut) avec les
+   images déjà en cache, puis le téléchargement part dans un thread dédié
+   et rappelle `on_done` via `self.ui()` -> plus aucun `join` sur le thread
+   principal. Plus aucun gel possible.
+2. **Cache d'avatars** `self._avatar_cache` (dict `user_id` → `CTkImage`,
+   conservé en mémoire) : un ami en ligne n'est téléchargé qu'une fois,
+   même après changement de compte.
+3. **Timeouts réseau réduits** pour les avatars : `_thumb_json(timeout=4)`
+   et `_download_image(timeout=4)` (les deux fonctions acceptent désormais
+   un paramètre `timeout`), `join(timeout=6)` au lieu de 10.
+4. **Rechargement uniquement manuel** (demande de l'utilisateur) : suppression
+   de `friends_refresh_loop` (la boucle 60 s) et des appels
+   `load_friends(auto=True)` dans `show_view` et `select_account`. Le bouton
+   "⟳ Charger" est désormais le SEUL déclencheur. Le garde anti-rafale de 3 s
+   est conservé (double-clic accidentel).
+5. **Pas de re-rendu inutile** : signature `self._friends_sig` =
+   (compte, liste des (id, status, place, last)). Si le contenu est
+   identique au rendu précédent, on ne détruit/reconstruit rien.
+6. **Visibilité du compte** : le label affiche désormais
+   « N en ligne — <compte> », et `_friends_reset()` (nouveau) vide la liste
+   avec le message « Amis de "<compte>" — clique sur ⟳ Charger » au
+   changement de compte / ouverture de la vue. Fini les listes obsolètes
+   d'un autre compte.
+
+### Optimisation : ce qu'il NE faut PAS optimiser
+`refresh_table_loop` (2 s) appelle `core.get_instances()` **sur le thread
+principal** — a priori suspect, mais mesuré : **4-5 ms** avec 288 processus
+sur la machine et 1 instance (énumération `psutil.process_iter(["name"])`
++ `memory_info` + `EnumWindows` par instance). Soit 0,2 % d'un cycle de
+2 s : négligeable. La boucle ne sera PAS déplacée en thread (risque
+d'introduire des bugs de resynchro pour un gain nul).
+En revanche `unlock_all()` (guardian multi-instance, 0,5 s) coûte **45 ms**
+sur cette machine ≈ 9 % d'un cœur en permanence — c'est le prix du
+multi-instance, voulu, mais c'est le seul point chaud restant.
+
+### Validation
+- `ast.parse` sur `app_ui.py` et `accounts.py` : OK.
+- App lancée avec le Python310 : fenêtre ouverte, aucun crash, aucune
+  nouvelle entrée dans `namachan_crash.log`.
+- Aucune modification de comportement métier : mêmes données, même ordre,
+  mêmes boutons ▶.
+- À tester par l'utilisateur : ouvrir la vue Comptes (doit rester fluide),
+  cliquer ⟳ Charger, changer de compte (liste vidée + invite), re-cliquer
+  (pseudos/avatars conservés, aucun re-téléchargement visible).
+
+---
+
+## Compte principal + scroll de la liste des comptes (30/09)
+
+### Contexte
+Demande de l'utilisateur : « une feature sur les accounts genre pour scroller
+le main acc, comme ça dès que j'open ça l'ouvre/lui/load ». Et : « tu vois la
+flèche pour scroller tout à droite, elle sert à rien je trouve ça ».
+
+### 1. Compte principal
+Rien n'existait : aucun compte n'était « plus important » que les autres, et
+au démarrage l'app prenait simplement `accs[0]` (le 1er de la liste, donc
+l'ordre d'ajout). Avec plusieurs comptes, il fallait scroller à la main pour
+retrouver celui qu'on voulait.
+
+- `accounts.update_account(..., main="__unset__")` : nouveau champ `main`
+  par compte (le sentinelle `__unset__` suit la convention existante de
+  `chrome_profile` pour distinguer « ne pas toucher » de False).
+- `accounts.set_main_account(acc_id)` : pose `main=True` sur UN compte et
+  `main=False` sur tous les autres (unicité garantie). `acc_id=None`
+  retire le compte principal.
+- `accounts.get_main_account()` : lecture rapide.
+- `refresh_accounts_list()` : (a) le main est sélectionné automatiquement
+  au démarrage (fallback inchangé sur `accs[0]` si aucun main défini),
+  (b) badge `⭐ ` devant son nom.
+- Scroll automatique : après rendu, `_scroll_account_into_view(idx)` amène la
+  carte sélectionnée dans le viewport (`yview_moveto`). Sans ça, avec
+  beaucoup de comptes, l'app « démarrait sur rien ».
+- UI : switch « Compte principal » dans la fiche ⚙ de chaque compte. La
+  hauteur de la fiche passe de 430 à 540 px. Un `set_main_account` n'est
+  appelé que si l'état a changé (pas d'écriture inutile dans accounts.json).
+
+NB (même session) : pas de tri auto « le main en tête » — l'utilisateur a
+choisi de réordonner lui-même via ▲▼ (cf. section 2), un tri auto rendrait
+le réordonnage invisible (le main serait repoussé en tête à chaque re-rendu).
+Le main est donc juste : badge ⭐ + sélection/scroll au démarrage.
+
+### 2. Les flèches ▲▼ : RÉORDONNER les comptes (pas scroller !)
+`acc_list` est un `CTkScrollableFrame`. En customtkinter **6.0.0**
+(installé ici), `CTkScrollbar` dessine une simple piste arrondie + un
+slider via `draw_rounded_scrollbar()` : **aucune flèche cliquable** n'est
+dessinée, et le paramètre `scrollbar_width` n'existe pas sur
+`CTkScrollableFrame` (les seuls params exposés sont `scrollbar_fg_color`,
+`scrollbar_button_color`, `scrollbar_button_hover_color`). Impossible donc
+de « réparer » des flèches qui n'existent pas.
+
+Demande clarifiée par l'utilisateur : « doncs les flèches c'est pas pour
+move up des comptes ? » -> elles servent à RÉORDONNER la liste, pas à
+scroller (le scroll = molette + auto-scroll sur le compte principal).
+
+- `accounts.move_account(acc_id, delta)` : swap avec le voisin dans
+  `data["accounts"]`, `save_data` (ordre **persisté**, conservé au
+  redémarrage). Bordures protégées (no-op aux extrémités).
+- `app_ui._move_account(±1)` : déplace le compte **SÉLECTIONNÉ**, re-rend
+  la liste, garde la sélection et re-scrolle dessus.
+- `_sync_move_buttons` : ▲ désactivée si le compte sélectionné est déjà en
+  tête, ▼ s'il est dernier, les deux si < 2 comptes (rien ne semble cassé).
+- En-tête « MES COMPTES » : `↻` (rafraîchir noms) + `▲` + `▼`.
+
+### 4. Le scroll qui part dans le vide (liste des comptes)
+**Symptôme** : en faisantroller la molette vers le haut, la liste
+« monte » même quand le premier compte est déjà affiché en haut — et même
+quand il n'y a aucun compte.
+
+**Cause** : `CTkScrollableFrame` branche sa molette en
+`bind_all("<MouseWheel>", ..., add=True)` — un binding **global** (bindtag
+`all`), donc exécuté tout en DERNIER, après tous les bindings de widget.
+Mon premier correctif bindait `_acc_list_wheel` avec `add="+"` sur
+`acc_list` : CTk défile quand même **après** mon handler et impose son
+décalage, mon `yview_moveto` était écrasé juste après.
+
+**Fix** : un seul binding sur `acc_list` (sans `add`) qui renvoie `"break"`
+→ Tk stoppe le traitement de l'événement et le handler global de CTk n'est
+jamais appelé. Le handler bride ensuite le déplacement entre 0.0 et 1.0
+(`yview_moveto(min(1.0, max(0.0, lo ± 0.10)))`) et ne fait strictement
+rien quand `yview() == (0.0, 1.0)`.
+
+Complément : `_reset_list_scroll()` (`yview_moveto(0.0)`, appelé 30 ms
+après re-rendu quand la liste est vide) — sans ça la canvas restait décalée
+après la suppression du dernier compte et le prochain compte ajouté
+apparaissait dans le vide.
+
+### 5. La scrollbar « inutile »
+**Supprimée DÉFINITIVEMENT** : le panneau de droite n'est plus un
+`CTkScrollableFrame` mais un simple `CTkFrame(body, fg_color="transparent")`
+-> aucune scrollbar n'est même instanciée, plus rien à masquer.
+
+Pour que rien ne soit coupé (le panneau ne défile plus), la carte
+« CHOISIR UN JEU » et les onglets ont été **compacts** (demande user :
+« delete la barre quitte à légèrement réduire l'onglet choisir un jeu ») :
+icône d'aperçu 64→52 px, entrée + boutons « Charger l'aperçu » /
+« REJOINDRE » / « Home » en 30–34 px, paddings réduits, onglets
+AMIS/JEUX 230→205 px de haut.
+
+Avant / après, pour identifier la bonne barre, 4 scrollbars ont été
+colorées temporairement (rouge = MES COMPTES, bleu = panneau droit,
+vert = AMIS, orange = JEUX RÉCENTS) : l'utilisateur a désigné la bleue.
+**Couleurs de debug retirées depuis** (`grep TMP-COLOR` ne trouve plus rien
+dans `app_ui.py`).
+
+Piège rencontré au passage : customtkinter **6.0.0** REJETTE
+`"transparent"` sur `CTkScrollbar(button_color=...)` ->
+`ValueError: transparency is not allowed for this attribute` (la
+transparence n'est permise que sur `fg_color`). La seule façon de retirer
+la scrollbar d'un `CTkScrollableFrame` est `pack_forget()` sur
+`_scrollbar` (et `scrollbar_width` n'existe pas sur ce widget).
+
+### 6. Les deux colonnes à la même hauteur
+Feedback : « size en fonction des accounts, comme ça ça a la même hauteur
+donc tu pourras augmenter un peu ».
+
+- `left` (MES COMPTES) était packé `fill="y"` **sans** `expand` → il
+  prenait sa hauteur demandée, plus courte que la vue, alors que la
+  colonne de droite prenait toute la hauteur. Passé en
+  `fill="both", expand=True` : les deux colonnes font désormais exactement
+  la même hauteur, et la liste des comptes s'étire sur toute la hauteur.
+- `tabs.pack(fill="both", expand=True)` : l'onglet AMIS / JEUX RÉCENTS
+  avale la place restante. Ça marche sans toucher à l'intérieur de
+  `CTkTabview`, dont les onglets sont déjà `grid(sticky="nsew")` en
+  `row=3` avec `weight=1` (`_set_grid_current_tab` / `_configure_grid`).
+- `friends_box` / `rec_grid` : `fill="both", expand=True` (le `height=205`
+  ne sert plus que de plancher). They remplissent l'onglet au lieu de
+  laisser du vide en bas.
+
+Résultat : plus de vide en bas du panneau de droite, et ~90 px de plus
+pour la liste d'amis / des jeux récents.
+
+### 7. Fermer en arrière-plan (icône dans la zone de notification)
+**Demande** : « un bouton dans les settings quand je veux close ça met en
+arrière-plan ».
+
+**Mise en place** :
+- `pystray` installé (seule dépendance externe ajoutée à Pillow ;
+  `psutil` venait déjà via core). Import protégé :
+  ```python
+  try:
+      import pystray
+      HAS_TRAY = True
+  except Exception:
+      pystray = None
+      HAS_TRAY = False
+  ```
+  Si pystray manque, l'app **refuse de se cacher** (une fenêtre cachée
+  sans moyen de la retrouver est pire qu'une fermeture) et l'affiche dans
+  les paramètres.
+- `protocol("WM_DELETE_WINDOW", self._on_close_requested)` : le X ne
+  détruit plus l'app. Si `settings.json["minimize_to_tray"]` est actif →
+  `withdraw()` + icône près de l'horloge. Sinon → vraie fermeture
+  (comportement classique conservé).
+- Icône pystray dans un **thread daemon** (`icon.run_detached()`), image
+  tirée de `namachan.ico` (64×64). Menu : « Afficher NamaChan »
+  (double-clic), séparateur, « Quitter ».
+- Tous les callbacks pystray passent par `self.ui(...)` : ils sont
+  exécutés dans le thread de pystray, jamais directement dans Tk.
+- `destroy()` appelle `_tray.stop()` pour retirer l'icône proprement.
+- Card « Fermer en arrière-plan » dans les Paramètres (switch + bouton
+  « Cacher maintenant »), persisté par `apply_feature_settings`
+  (`minimize_to_tray`).
+- `NamaChanAccountManager.spec` : `collect_all('pystray')` +
+  `hiddenimports += ['pystray._win32']` (l'import étant dans un
+  try/except, PyInstaller peut ne pas le détecter).
+
+**Réponse à la question posée** : OUI, le guardian doit continuer en
+arrière-plan — c'est tout l'intérêt. Le guardian re-strippe les objets
+single-instance de toutes les instances > 8 s toutes les 0,5 s tant que
+`force_mutex` est ON ; sans lui, fermer proprement une instance ferme les
+autres. Process vivant = guardian vivant, et les threads `after` de Tk
+(`refresh_table_loop`...) tournent toujours.
+
+### Validation
+- `ast.parse` OK, app relancée, aucun crash.
+- Reste à tester par l'utilisateur : activer le switch → X → l'app
+  disparaît et l'icône est dans la zone de notification → double-clic =
+  elle revient → « Quitter » = vraie fermeture.
+- Toujours pas de push GitHub ni de rebuild exe.

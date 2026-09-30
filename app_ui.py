@@ -21,12 +21,20 @@ try:
 except Exception:
     HAS_PIL = False
 
+# Zone de notification (icône près de l'horloge) pour "fermer en arrière-plan".
+try:
+    import pystray
+    HAS_TRAY = True
+except Exception:
+    pystray = None
+    HAS_TRAY = False
+
 import accounts
 import core
 import features
 import updater
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 BG = "#0d1118"
 CARD = "#151b26"
@@ -138,19 +146,19 @@ class ToolTip:
             self.tw = None
 
 
-def _thumb_json(url):
+def _thumb_json(url, timeout=10):
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode())
     except Exception:
         return None
 
 
-def _download_image(url):
+def _download_image(url, timeout=12):
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=12) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read()
     except Exception:
         return None
@@ -193,6 +201,12 @@ class App(ctk.CTk):
         self.views = {}
         self._img_cache = {}
         self._acc_btns = {}
+        self._avatar_cache = {}
+        self._friends_sig = None
+        self._tray = None
+        self._tray_hidden = False
+        # Le X ne détruit plus l'app : il la cache (cf. _on_close_requested).
+        self.protocol("WM_DELETE_WINDOW", self._on_close_requested)
 
         self.build_sidebar_shell()
         self.build_view_comptes_sidebar()
@@ -210,6 +224,8 @@ class App(ctk.CTk):
         if hasattr(self, "sw_aa"):
             self.sw_aa.select() if s.get("anti_afk") else self.sw_aa.deselect()
             self.e_aa_int.insert(0, str(s.get("aa_interval", 120)))
+        if hasattr(self, "sw_tray"):
+            self.sw_tray.select() if s.get("minimize_to_tray") else self.sw_tray.deselect()
         self.var_force.set(s.get("force_mutex", True))
         self.apply_feature_settings()
 
@@ -226,7 +242,6 @@ class App(ctk.CTk):
         self.reload_profiles_menu()
         self.after(2000, self.refresh_table_loop)
         self.after(3000, self._auto_check_update)
-        self.after(5000, self.friends_refresh_loop)
 
     def _sync_guardian(self):
         try:
@@ -242,6 +257,92 @@ class App(ctk.CTk):
                 self.log("[Multi-instance] OFF — gardien arrêté.")
         except Exception as e:
             self.log(f"[Multi-instance] ERREUR gardien : {e}")
+
+    def _tray_image(self):
+        """Icône 64x64 pour la zone de notification (namachan.ico)."""
+        if not HAS_PIL:
+            return None
+        for name in ("namachan.ico", "namachan_preview.png"):
+            p = os.path.join(accounts.APP_DIR, name)
+            if os.path.exists(p):
+                try:
+                    im = Image.open(p)
+                    return im.convert("RGBA").resize((64, 64), Image.LANCZOS)
+                except Exception:
+                    pass
+        return None
+
+    def _build_tray(self):
+        """Crée l'icône de notification (une seule fois). None si pystray
+        absent -> dans ce cas on ne cache jamais la fenêtre (sinon plus
+        aucun moyen de la retrouver)."""
+        if self._tray is not None or not HAS_TRAY:
+            return self._tray
+        try:
+            img = self._tray_image()
+            if img is None:
+                return None
+            menu = pystray.Menu(
+                pystray.MenuItem("Afficher NamaChan", lambda: self.ui(self._show_window), default=True),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Mettre à jour l'onglet de jeu", lambda: self.ui(self._focus_games_tab)),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Quitter", lambda: self.ui(self._real_quit)),
+            )
+            icon = pystray.Icon("namachan", img, "NamaChan Account Manager", menu)
+            # Thread daemon : ne doit jamais empêcher la fin du process.
+            threading.Thread(target=icon.run_detached, daemon=True).start()
+            self._tray = icon
+        except Exception as e:
+            self._tray = None
+            try:
+                self.log(f"[Tray] Icône de notification indisponible : {e}")
+            except Exception:
+                pass
+        return self._tray
+
+    def _on_close_requested(self):
+        """Clic sur le X. Si l'option est active -> arrière-plan, sinon
+        vraie fermeture. Le process reste vivant en arrière-plan : le
+        guardian multi-instance CONTINUE de tourner (c'est le but)."""
+        if self.settings.get("minimize_to_tray") and self._build_tray() is not None:
+            self._hide_to_tray()
+            return
+        self._real_quit()
+
+    def _hide_to_tray(self):
+        try:
+            self.withdraw()
+            self._tray_hidden = True
+            self.log("[Tray] App masquée en arrière-plan — le multi-instance continue de tourner.")
+        except Exception:
+            pass
+
+    def _show_window(self):
+        self._tray_hidden = False
+        try:
+            self.deiconify()
+            self.state("normal")
+            self.lift()
+            self.focus_force()
+        except Exception:
+            pass
+
+    def _focus_games_tab(self):
+        try:
+            self.show_view("comptes")
+        except Exception:
+            pass
+
+    def _real_quit(self):
+        self._closing = True
+        try:
+            if self._tray is not None:
+                self._tray.stop()
+                self._tray = None
+        except Exception:
+            pass
+        self.destroy()
 
     def build_sidebar_shell(self):
         self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0, fg_color=CARD)
@@ -300,7 +401,6 @@ class App(ctk.CTk):
                         text_color=("#000000" if k == key else MUT))
         if key == "comptes":
             self.refresh_accounts_list()
-            self.load_friends(auto=True)
 
     def _bg_image(self, w, h, c1, c2, horizontal=False):
         if not HAS_PIL:
@@ -442,10 +542,15 @@ class App(ctk.CTk):
 
     def refresh_accounts_list(self):
         accs = accounts.get_accounts()
+        main_acc = next((a for a in accs if a.get("main")), None)
+        # L'ORDRE de la liste est celui de accounts.json (contrôlable par
+        # l'utilisateur via ▲▼). Pas de tri auto : le "main" est juste un
+        # badge ⭐ + sélection/scroll au démarrage.
         if not self._sel_id and accs:
-            self._sel_acc = accs[0]
-            self._sel_id = accs[0].get("id")
-            self.current_account = accs[0]["name"]
+            first = main_acc or accs[0]
+            self._sel_acc = first
+            self._sel_id = first.get("id")
+            self.current_account = first["name"]
             self.update_header()
         for w in self.acc_list.winfo_children():
             w.destroy()
@@ -453,6 +558,10 @@ class App(ctk.CTk):
         if not accs:
             ctk.CTkLabel(self.acc_list, text="Aucun compte.\nClique sur « + Ajouter un compte ».",
                          font=FONT_S, text_color=MUT, justify="center").pack(pady=30)
+            # Reset du scroll : sinon la canvas reste decalee apres la
+            # suppression du dernier compte et le prochain compte ajoute
+            # apparait dans le vide (bug signale par l'utilisateur).
+            self.after(30, self._reset_list_scroll)
             return
 
         def fill_avatar(btn, uid):
@@ -461,11 +570,13 @@ class App(ctk.CTk):
                 self.ui(lambda b=btn, i=img: (b.winfo_exists() and b.configure(image=i)))
 
         for a in accs:
+            is_main = bool(a.get("main"))
             badge = "  [nav]" if a.get("chrome_profile") else ""
+            star = "⭐ " if is_main else ""
             sel = self._sel_id == a.get("id")
             card = ctk.CTkFrame(self.acc_list, fg_color=(ACCENT if sel else CARD2), corner_radius=8)
             card.pack(fill="x", pady=3)
-            av_btn = ctk.CTkButton(card, text=a["name"][:16] + badge, font=FONT_B, anchor="w", height=44,
+            av_btn = ctk.CTkButton(card, text=star + a["name"][:16] + badge, font=FONT_B, anchor="w", height=44,
                                    corner_radius=8, image=None,
                                    fg_color="transparent", hover_color="#26303f",
                                    text_color=("#000000" if sel else "#ffffff"),
@@ -477,6 +588,99 @@ class App(ctk.CTk):
                           command=lambda aa=a: self.open_details_dialog(aa)).pack(side="right", padx=3)
             if a.get("user_id"):
                 threading.Thread(target=fill_avatar, args=(av_btn, a["user_id"]), daemon=True).start()
+        self._sync_move_buttons()
+        # Amene la carte selectionnee dans le viewport (sinon invisible avec
+        # beaucoup de comptes -> on dirait que l'app demarre sur rien).
+        sel_idx = next((i for i, a in enumerate(accs) if a.get("id") == self._sel_id), -1)
+        if sel_idx >= 0:
+            self.after(60, lambda i=sel_idx: self._scroll_account_into_view(i))
+
+    def _acc_list_wheel(self, event):
+        """Molette sur la liste des comptes, bridée entre 0 et 1.
+
+        Why: CTkScrollableFrame branche sa molette en `bind_all(..., add=True)`
+        (cf. customtkinter/windows/widgets/ctk_scrollable_frame.py) -> c'est
+        un binding GLOBAL, execute en DERNIER (bindtag "all"). Un binding
+        classique + "break" le coupe, sinon CTk defile quand meme apres nous
+        et la liste part dans le vide (bug : "scroller vers le haut ca monte"
+        alors que le 1er compte est deja en haut)."""
+        try:
+            c = self.acc_list._parent_canvas
+            lo, hi = c.yview()
+            if lo <= 0.0 and hi >= 1.0:
+                return "break"          # tout tient dans la fenetre
+            step = 0.10 if event.delta > 0 else -0.10
+            c.yview_moveto(min(1.0, max(0.0, lo + step)))
+        except Exception:
+            pass
+        return "break"
+
+    def _reset_list_scroll(self):
+        """Ramene la liste des comptes en haut (canvas a 0)."""
+        try:
+            self.acc_list._parent_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
+
+    def _list_geometry(self):
+        """(y, hauteur visible) de la zone visible du canvas des comptes."""
+        try:
+            c = self.acc_list._parent_canvas
+            self.acc_list.update_idletasks()
+            top = c.canvasy(0)
+            return top, top + c.winfo_height()
+        except Exception:
+            return 0.0, float(self.acc_list.winfo_height())
+
+    def _scroll_account_into_view(self, idx):
+        try:
+            kids = self.acc_list.winfo_children()
+            if idx < 0 or idx >= len(kids):
+                return
+            top, bot = self._list_geometry()
+            y0 = kids[idx].winfo_y()
+            y1 = y0 + kids[idx].winfo_height()
+            if y0 >= top and y1 <= bot:
+                return
+            total = max(1.0, kids[-1].winfo_y() + kids[-1].winfo_height())
+            frac = (y0 - 30) / total
+            self.acc_list._parent_canvas.yview_moveto(max(0.0, min(1.0, frac)))
+        except Exception:
+            pass
+
+    def _move_account(self, delta):
+        """▲/▼ : déplace le compte SÉLECTIONNÉ d'une position dans la liste.
+        L'ordre est persisté (accounts.json) et conservé au redémarrage."""
+        if not self._sel_id:
+            return
+        try:
+            accounts.move_account(self._sel_id, delta)
+        except Exception:
+            return
+        self.refresh_accounts_list()
+        self._sync_move_buttons()
+        try:
+            accs = accounts.get_accounts()
+            idx = next((i for i, a in enumerate(accs) if a.get("id") == self._sel_id), -1)
+            if idx >= 0:
+                self.after(50, lambda i=idx: self._scroll_account_into_view(i))
+        except Exception:
+            pass
+
+    def _sync_move_buttons(self, _n=None):
+        """Active/desactive ▲▼ selon la position du compte sélectionné."""
+        try:
+            accs = accounts.get_accounts()
+            if len(accs) < 2 or not self._sel_id:
+                up = down = False
+            else:
+                idx = next((i for i, a in enumerate(accs) if a.get("id") == self._sel_id), -1)
+                up = idx > 0
+                down = 0 <= idx < len(accs) - 1
+            self.btn_acc_up.configure(state="normal" if up else "disabled")
+            self.btn_acc_down.configure(state="normal" if down else "disabled")
+        except Exception:
+            pass
 
     def select_account(self, acc):
         self._sel_acc = acc
@@ -484,12 +688,12 @@ class App(ctk.CTk):
         self.current_account = acc.get("name")
         self.update_header()
         self.refresh_accounts_list()
-        self.load_friends(auto=True)
+        self._friends_reset()
 
     def open_details_dialog(self, acc):
         w = ctk.CTkToplevel(self)
         w.title(f"Détails — {acc['name']}")
-        w.geometry("480x430")
+        w.geometry("480x540")
         _apply_icon(w)
         w.configure(fg_color=BG)
         w.transient(self)
@@ -522,6 +726,17 @@ class App(ctk.CTk):
         opt.set(cur)
         opt.pack(side="left", padx=8, fill="x", expand=True)
 
+        r3 = ctk.CTkFrame(w, fg_color="transparent")
+        r3.pack(fill="x", padx=18, pady=(10, 2))
+        self.sw_main = ctk.CTkSwitch(r3, text="Compte principal  (sélectionné + scrollé au démarrage)",
+                                     font=FONT, text_color=FG, progress_color=ACCENT)
+        self.sw_main.pack(side="left")
+        if acc.get("main"):
+            self.sw_main.select()
+        ctk.CTkLabel(w, text="Un seul compte principal : il passe en tête de liste et\n"
+                              "s'affiche automatiquement à l'ouverture de l'app.",
+                     font=FONT_S, text_color=MUT, justify="left").pack(anchor="w", padx=18, pady=(0, 6))
+
         def do_save():
             prof_key = None
             t = opt.get()
@@ -533,9 +748,15 @@ class App(ctk.CTk):
                                     name=ent_name.get().strip() or acc["name"],
                                     notes=txt_notes.get("1.0", "end").strip(),
                                     chrome_profile=prof_key)
+            was_main = bool(acc.get("main"))
+            now_main = bool(self.sw_main.get())
+            if now_main != was_main:
+                accounts.set_main_account(acc["id"] if now_main else None)
             self.refresh_accounts_list()
             self.reload_profiles_menu()
-            self.set_status("Compte enregistré.")
+            self.set_status("Compte enregistré." if not now_main else
+                            (f"« {acc['name']} » est désormais le compte principal." if now_main
+                             else "Compte enregistré."))
             try:
                 w.grab_release()
             except Exception:
@@ -781,35 +1002,61 @@ class App(ctk.CTk):
         body = ctk.CTkFrame(v, fg_color="transparent")
         body.pack(fill="both", expand=True)
 
+        # fill="both" + expand=True : la colonne gauche prend toute la
+        # hauteur de la vue, donc MES COMPTES et le panneau de droite font
+        # EXACTEMENT la meme hauteur -> la place restante va aux onglets.
         left = ctk.CTkFrame(body, width=300, fg_color="transparent")
-        left.pack(side="left", fill="y", padx=(0, 12))
+        left.pack(side="left", fill="both", expand=True, padx=(0, 12))
         lt = ctk.CTkFrame(left, fg_color="transparent")
         lt.pack(fill="x", pady=(0, 6))
         ctk.CTkLabel(lt, text="MES COMPTES", font=("Segoe UI", 11, "bold"), text_color=MUT, anchor="w").pack(side="left")
+        # ▲▼ : déplacent le compte SÉLECTIONNÉ dans la liste (réordre
+        # persisté) — pas de scroll : la scrollbar CTk 6.0.0 n'a pas de
+        # flèches, et le scroll se fait à la molette.
+        self.btn_acc_down = ctk.CTkButton(lt, text="▼", width=30, height=26, corner_radius=6,
+                                          fg_color=CARD2, hover_color="#26303f", text_color=MUT,
+                                          command=lambda: self._move_account(1))
+        self.btn_acc_down.pack(side="right", padx=(0, 4))
+        self.btn_acc_up = ctk.CTkButton(lt, text="▲", width=30, height=26, corner_radius=6,
+                                        fg_color=CARD2, hover_color="#26303f", text_color=MUT,
+                                        command=lambda: self._move_account(-1))
+        self.btn_acc_up.pack(side="right", padx=(0, 4))
         ctk.CTkButton(lt, text="↻", width=32, height=26, corner_radius=6,
                       fg_color=CARD2, hover_color="#26303f", text_color=MUT,
                       command=self.refresh_names_thread).pack(side="right")
+        # Scrollbar d'origine (la couleur rouge/verte/etc. de debug a ete
+        # retiree apres identification par l'utilisateur).
         self.acc_list = ctk.CTkScrollableFrame(left, width=290, fg_color=CARD)
         self.acc_list.pack(fill="both", expand=True)
+        # Molette bridée sur la liste des comptes. PAS de add="+ ici : le
+        # handler doit être le SEUL sur ce widget et renvoyer "break" pour
+        # court-circuiter le bind_all de CTkScrollableFrame (cf.
+        # _acc_list_wheel). Un binding additif le laissait défiler quand
+        # même, après nous.
+        self.acc_list.bind("<MouseWheel>", self._acc_list_wheel)
 
-        right = ctk.CTkScrollableFrame(body, fg_color="transparent")
+        # Panneau de droite : CTkFrame SIMPLE (plus scrollable) -> aucune
+        # scrollbar possible, definitive. Pour que rien ne soit coupe, la
+        # carte "CHOISIR UN JEU" et les onglets ci-dessous sont compacts
+        # (demande user : "delete la barre quitte a reduire l'onglet").
+        right = ctk.CTkFrame(body, fg_color="transparent")
         right.pack(side="left", fill="both", expand=True)
         card = ctk.CTkFrame(right, fg_color=CARD, corner_radius=12)
         card.pack(fill="x")
-        ctk.CTkLabel(card, text="CHOISIR UN JEU", font=("Segoe UI", 11, "bold"), text_color=MUT, anchor="w").pack(fill="x", padx=16, pady=(12, 2))
+        ctk.CTkLabel(card, text="CHOISIR UN JEU", font=("Segoe UI", 11, "bold"), text_color=MUT, anchor="w").pack(fill="x", padx=16, pady=(10, 0))
         r1 = ctk.CTkFrame(card, fg_color="transparent")
         r1.pack(fill="x", padx=16, pady=4)
-        self.ent_target = ctk.CTkEntry(r1, font=FONT, placeholder_text="Place ID ou lien : roblox.com/games/2753915549 ou lien serveur privé")
+        self.ent_target = ctk.CTkEntry(r1, font=FONT, height=30, placeholder_text="Place ID ou lien : roblox.com/games/2753915549 ou lien serveur privé")
         self.ent_target.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(r1, text="Charger l'aperçu", width=130, fg_color=CARD2, hover_color="#26303f",
+        ctk.CTkButton(r1, text="Charger l'aperçu", width=130, height=30, fg_color=CARD2, hover_color="#26303f",
                       command=self.load_game_preview).pack(side="left", padx=(8, 0))
 
         pv = ctk.CTkFrame(card, fg_color=CARD2, corner_radius=10)
-        pv.pack(fill="x", padx=16, pady=(8, 6))
-        self.pv_icon = ctk.CTkLabel(pv, text="🎮", font=("Segoe UI", 26), width=64, height=64)
-        self.pv_icon.pack(side="left", padx=10, pady=8)
+        pv.pack(fill="x", padx=16, pady=(6, 4))
+        self.pv_icon = ctk.CTkLabel(pv, text="🎮", font=("Segoe UI", 22), width=52, height=52)
+        self.pv_icon.pack(side="left", padx=10, pady=5)
         pvinfo = ctk.CTkFrame(pv, fg_color="transparent")
-        pvinfo.pack(side="left", fill="both", expand=True, padx=(0, 12), pady=8)
+        pvinfo.pack(side="left", fill="both", expand=True, padx=(0, 12), pady=6)
         self.pv_name = ctk.CTkLabel(pvinfo, text="Colle un lien / Place ID, puis « Rejoindre ».",
                                     font=FONT_B, anchor="w", justify="left", text_color=MUT)
         self.pv_name.pack(anchor="w")
@@ -817,19 +1064,19 @@ class App(ctk.CTk):
         self.pv_mode.pack(anchor="w")
         self._preview_target = None
         btns = ctk.CTkFrame(card, fg_color="transparent")
-        btns.pack(fill="x", padx=16, pady=(4, 10))
+        btns.pack(fill="x", padx=16, pady=(2, 8))
         self.btn_join = ctk.CTkButton(btns, text="▶  REJOINDRE", font=("Segoe UI", 12, "bold"),
-                                      height=36, corner_radius=8, fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
+                                      height=34, corner_radius=8, fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
                                       command=self.launch_selected_game)
         self.btn_join.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(btns, text="Home", width=70, height=36, corner_radius=8,
+        ctk.CTkButton(btns, text="Home", width=70, height=34, corner_radius=8,
                       fg_color=CARD2, hover_color="#26303f",
                       command=lambda: threading.Thread(target=self.api_launch_home, daemon=True).start()).pack(side="left", padx=(8, 0))
 
         card2 = ctk.CTkFrame(right, fg_color=CARD, corner_radius=12)
-        card2.pack(fill="x", pady=(10, 0))
+        card2.pack(fill="x", pady=(8, 0))
         c2 = ctk.CTkFrame(card2, fg_color="transparent")
-        c2.pack(fill="x", padx=16, pady=12)
+        c2.pack(fill="x", padx=16, pady=10)
         ctk.CTkLabel(c2, text="REJOINDRE UN JOUEUR", font=("Segoe UI", 11, "bold"), text_color=MUT).pack(side="left")
         self.ent_player = ctk.CTkEntry(c2, width=170, font=FONT, placeholder_text="Pseudo Roblox",
                                        justify="center")
@@ -843,7 +1090,10 @@ class App(ctk.CTk):
         tabs = ctk.CTkTabview(right, fg_color=CARD, corner_radius=12,
                               segmented_button_selected_color=ACCENT,
                               segmented_button_selected_hover_color=ACCENT_H)
-        tabs.pack(fill="x", pady=(10, 0))
+        # expand=True -> l'onglet AMIS / JEUX occupe toute la hauteur
+        # restante du panneau de droite (les 2 colonnes font la meme
+        # hauteur, donc on gagne de la place pour la liste).
+        tabs.pack(fill="both", expand=True, pady=(8, 0))
         tab_f = tabs.add("AMIS EN LIGNE")
         tab_r = tabs.add("JEUX RÉCENTS")
 
@@ -856,8 +1106,8 @@ class App(ctk.CTk):
                                          fg_color=ACCENT, hover_color=ACCENT_H, text_color="#000000",
                                          command=self.load_friends)
         self.btn_friends.pack(side="right", padx=(0, 8))
-        self.friends_box = ctk.CTkScrollableFrame(tab_f, fg_color=CARD2, height=230, corner_radius=8)
-        self.friends_box.pack(fill="x", padx=16, pady=10)
+        self.friends_box = ctk.CTkScrollableFrame(tab_f, fg_color=CARD2, height=205, corner_radius=8)
+        self.friends_box.pack(fill="both", expand=True, padx=16, pady=(8, 10))
         self._friend_btns = {}
 
         rth = ctk.CTkFrame(tab_r, fg_color="transparent")
@@ -866,8 +1116,8 @@ class App(ctk.CTk):
         ctk.CTkButton(rth, text="↻", width=32, height=26, corner_radius=6,
                       fg_color=CARD2, hover_color="#26303f", text_color=MUT,
                       command=self.reload_recents).pack(side="right")
-        self.rec_grid = ctk.CTkScrollableFrame(tab_r, fg_color=CARD2, height=230, corner_radius=8)
-        self.rec_grid.pack(fill="x", padx=16, pady=10)
+        self.rec_grid = ctk.CTkScrollableFrame(tab_r, fg_color=CARD2, height=205, corner_radius=8)
+        self.rec_grid.pack(fill="both", expand=True, padx=16, pady=(8, 10))
 
     def load_game_preview(self):
         raw = self.ent_target.get().strip()
@@ -990,6 +1240,24 @@ class App(ctk.CTk):
             self.ui(lambda: self.set_status(f"Échec du join : {msg}"))
         self.ui(reenable)
 
+    def _friends_reset(self, msg=None):
+        """Vide la liste d'amis et invite à charger. Aucun appel réseau :
+        utilisé au changement de compte / ouverture de la vue (rechargement
+        uniquement manuel via le bouton)."""
+        self._friends_sig = None
+        try:
+            host = self.friends_box
+            if not host.winfo_exists():
+                return
+            for w in host.winfo_children():
+                w.destroy()
+            acc = self._play_account()
+            ctk.CTkLabel(host, text=msg or f"Amis de « {acc} » — clique sur ⟳ Charger",
+                         font=FONT_S, text_color=MUT, justify="center", wraplength=380).pack(pady=20)
+            self.lbl_friends.configure(text="")
+        except Exception:
+            pass
+
     def load_friends(self, auto=False):
         acc = self._play_account()
         if not acc:
@@ -1033,7 +1301,8 @@ class App(ctk.CTk):
             friends = [f if isinstance(f, dict) else {"id": f} for f in fri_ids]
             self.log(f"[Amis] {len(friends)} ami(s) récupéré(s).")
             if not friends:
-                self.ui(lambda: self.lbl_friends.configure(text=""))
+                self.ui(lambda: self._friends_reset(
+                    f"Aucun ami trouvé pour « {acc_obj['name']} » (ou token invalide)."))
                 self.ui(lambda: self.set_status("Aucun ami trouvé (ou token invalide)."))
                 self.ui(reenable)
                 return
@@ -1053,43 +1322,68 @@ class App(ctk.CTk):
             self.ui(lambda: self.set_status(f"Chargement des amis impossible : {e}"))
         self.ui(reenable)
 
-    def _avatars_map(self, user_ids):
+    def _avatar_cached(self, user_ids):
+        cache = getattr(self, "_avatar_cache", None)
+        if cache is None:
+            cache = self._avatar_cache = {}
+        return {uid: cache[uid] for uid in user_ids if uid in cache}
+
+    def _avatars_fetch_async(self, user_ids, on_done):
+        """Télécharge les avatars MANQUANTS dans un thread dédié, puis
+        rappelle on_done via la boucle UI. Ne fait AUCune attente bloquante :
+        appelé depuis _render_friends qui tourne sur le thread principal.
+        Les images déjà téléchargées sont servies depuis le cache."""
         ids = [int(x) for x in user_ids if x]
         if not ids:
-            return {}
-        urls = {}
-        for i in range(0, len(ids), 100):
-            chunk = ids[i:i + 100]
-            q = ",".join(str(x) for x in chunk)
-            try:
-                d = _thumb_json(f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={q}&size=150x150&format=Png&isCircular=true")
+            return
+        cache = self._avatar_cache
+
+        def work():
+            urls = {}
+            for i in range(0, len(ids), 100):
+                q = ",".join(str(x) for x in ids[i:i + 100])
+                d = _thumb_json(
+                    f"https://thumbnails.roblox.com/v1/users/avatar-headshot"
+                    f"?userIds={q}&size=150x150&format=Png&isCircular=true", timeout=4)
                 for item in (d or {}).get("data", []):
                     if item.get("imageUrl"):
                         urls[item.get("targetId")] = item["imageUrl"]
-            except Exception:
-                pass
-        out = {}
+            todo = [(t, u) for t, u in urls.items() if t not in cache]
+            got = {}
+            lock = threading.Lock()
 
-        def fetch(tid, u):
-            raw = _download_image(u)
-            if raw and HAS_PIL:
+            def fetch(tid, u):
+                raw = _download_image(u, timeout=4)
+                if not raw or not HAS_PIL:
+                    return
                 try:
                     pil = Image.open(io.BytesIO(raw)).resize((32, 32))
-                    out[tid] = ctk.CTkImage(light_image=pil, dark_image=pil, size=(32, 32))
+                    img = ctk.CTkImage(light_image=pil, dark_image=pil, size=(32, 32))
                 except Exception:
-                    pass
+                    return
+                with lock:
+                    got[tid] = img
 
-        threads = [threading.Thread(target=fetch, args=(tid, u), daemon=True) for tid, u in urls.items()]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=10)
-        return out
+            threads = [threading.Thread(target=fetch, args=(t, u), daemon=True) for t, u in todo]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=6)
+            with lock:
+                cache.update(got)
+            self.ui(lambda: on_done(dict(got)))
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _render_friends(self, online, acc_name):
         host = self.friends_box
         if not host.winfo_exists():
             return
+        sig = (acc_name, tuple((f["id"], p["status"], p.get("place_id", ""),
+                                p.get("last", "")) for f, p in online))
+        if sig == getattr(self, "_friends_sig", None):
+            return
+        self._friends_sig = sig
         for w in host.winfo_children():
             w.destroy()
         self._friend_btns = {}
@@ -1098,7 +1392,7 @@ class App(ctk.CTk):
                          font=FONT_S, text_color=MUT, justify="center").pack(pady=20)
             self.lbl_friends.configure(text="")
             return
-        self.lbl_friends.configure(text=f"{len(online)} ami(s) en ligne")
+        self.lbl_friends.configure(text=f"{len(online)} en ligne — {acc_name}")
         self.lbl_friends.configure(text_color=FG)
         rows = []
         for f, p in online:
@@ -1118,17 +1412,22 @@ class App(ctk.CTk):
                                         target=self._join_friend, args=(ff, pp, acc_name), daemon=True).start())
                 btn.pack(side="right", padx=6, pady=5)
             rows.append((f["id"], av))
-        img_map = self._avatars_map([rid for rid, _ in rows])
+        cached = self._avatar_cached([rid for rid, _ in rows])
 
-        def apply():
+        def apply(new_imgs):
             for rid, av in rows:
-                img = img_map.get(rid)
-                if img:
-                    try:
+                try:
+                    if not av.winfo_exists():
+                        continue
+                    img = new_imgs.get(rid) or cached.get(rid)
+                    if img:
                         av.configure(image=img, text="")
-                    except Exception:
-                        pass
-        self.ui(apply)
+                except Exception:
+                    pass
+
+        apply({})
+        self._avatars_fetch_async(
+            [rid for rid, av in rows if rid not in cached and av.winfo_exists()], apply)
 
     def _join_friend(self, friend, presence, acc_name):
         target = None
@@ -1454,6 +1753,25 @@ class App(ctk.CTk):
         self.opt_theme.pack(side="left", padx=8)
         ctk.CTkLabel(r1, text="(appliqué au redémarrage de l'app)", font=FONT_S, text_color=MUT).pack(side="left", padx=4)
 
+        # ── Fenêtre / arrière-plan ──
+        card_tray = ctk.CTkFrame(v, fg_color=CARD, corner_radius=12)
+        card_tray.pack(fill="x", pady=8)
+        r_tray = ctk.CTkFrame(card_tray, fg_color="transparent")
+        r_tray.pack(fill="x", padx=14, pady=10)
+        self.sw_tray = ctk.CTkSwitch(r_tray, text="Fermer en arrière-plan", font=FONT_B,
+                                     command=self.apply_feature_settings,
+                                     progress_color=ACCENT, button_color=ACCENT,
+                                     button_hover_color=ACCENT_H)
+        self.sw_tray.pack(side="left")
+        ctk.CTkLabel(r_tray, text="Le X (et la croix de la fenêtre) met l'app dans la zone de notification "
+                                  "au lieu de tout fermer.", font=FONT_S, text_color=MUT).pack(side="left", padx=10)
+        if HAS_TRAY:
+            ctk.CTkButton(r_tray, text="Cacher maintenant", font=FONT_B, width=150, height=30,
+                          fg_color=CARD2, hover_color="#26303f", text_color=FG,
+                          command=self._on_close_requested).pack(side="right", padx=(10, 0))
+        else:
+            ctk.CTkLabel(r_tray, text="pystray manquant", font=FONT_S, text_color=MUT).pack(side="right")
+
         # ── Sécurité ──
         card2 = ctk.CTkFrame(v, fg_color=CARD, corner_radius=12)
         card2.pack(fill="x", pady=8)
@@ -1563,6 +1881,7 @@ class App(ctk.CTk):
             "fps_default": self.settings.get("fps_default", 240),
             "gfx_quality": self.settings.get("gfx_quality", "auto"),
             "theme": self.theme_name,
+            "minimize_to_tray": bool(self.sw_tray.get()) if hasattr(self, "sw_tray") else False,
         }
         self.settings = s
         core.save_settings(s)
@@ -1619,19 +1938,15 @@ class App(ctk.CTk):
             pass
         self.after(2000, self.refresh_table_loop)
 
-    def friends_refresh_loop(self):
-        if self._closing:
-            return
-        try:
-            if getattr(self, "_current_view", None) == "comptes":
-                self.load_friends(auto=True)
-        except Exception:
-            pass
-        self.after(60000, self.friends_refresh_loop)
-
     def destroy(self):
         self._closing = True
         core.stop_guardian()
+        try:
+            if self._tray is not None:
+                self._tray.stop()
+                self._tray = None
+        except Exception:
+            pass
         super().destroy()
 
 
